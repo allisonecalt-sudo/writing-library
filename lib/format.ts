@@ -90,3 +90,12 @@ export function metaLine(p: Piece, withFolder = false): string {
 export function sortTitle(p: Piece): string {
   return displayTitle(p).text.toLowerCase();
 }
+
+export function formatDateTime(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `${day}, ${time}`;
+}

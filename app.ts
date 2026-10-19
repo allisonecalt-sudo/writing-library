@@ -1,5 +1,5 @@
 // My Writing: a private reading app. Drive is the master. The app reads the library and can
-// only leave requests (trash / kind / top) in writing_requests; a nightly job applies them.
+// only leave requests (trash / kind / top) and notes to Claude in writing_requests; a nightly job applies them.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildLibrary, fetchAll, fetchRequests, normaliseReq } from './lib/data.js';
 import { KIND_LABEL } from './lib/format.js';
@@ -31,7 +31,7 @@ const SB_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwaXl2bmZob3Fubm5vdHJtd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NzIwNDEsImV4cCI6MjA4ODA0ODA0MX0.AsGhYitkSnyVMwpJII05UseS_gICaXiCy7d8iHsr6Qw';
 
 // Bump together with VERSION in sw.js on every deploy.
-const APP_VERSION = 'v1.1';
+const APP_VERSION = 'v1.2';
 
 const ROLL_MS = 600;
 const NO_REPEAT = 20;
@@ -51,6 +51,12 @@ let rolling = false;
 let trashOpen = false;
 let kindOpen = false;
 let busy = false;
+let reloading = false;
+let notesOpen = false;
+let noteFor: string | null = null; // piece id, or 'general', while a note box is open
+let noteDraft = '';
+let answeredSeen = new Set<number>();
+const SEEN_KEY = 'wl-seen-replies';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -76,6 +82,37 @@ function setError(on: boolean): void {
   const line = el('save-error');
   line.textContent = on ? SAVE_ERROR : '';
   line.hidden = !on;
+}
+
+function answeredIds(): number[] {
+  return requests.filter((r) => r.action === 'note' && r.done_at !== null).map((r) => r.id);
+}
+
+function loadSeen(): Set<number> | null {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return raw ? new Set(JSON.parse(raw) as number[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** She has now seen every reply that exists. (Remembered per device, as a convenience only.) */
+function markSeen(): void {
+  answeredSeen = new Set(answeredIds());
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...answeredSeen]));
+  } catch {
+    // storage blocked: the dot just resets next time
+  }
+}
+
+function hasFreshReplies(): boolean {
+  return answeredIds().some((id) => !answeredSeen.has(id));
+}
+
+function focusNote(): void {
+  document.getElementById('note-text')?.focus();
 }
 
 function routeKey(r: Route): string {
@@ -115,11 +152,23 @@ function render(): void {
   const key = routeKey(route);
   if (key !== lastRouteKey) {
     kindOpen = false;
+    noteFor = null;
+    noteDraft = '';
     setError(false);
   }
   switch (route.name) {
     case 'home':
-      setView(homeHtml(lib, { query: searchQuery, rolled, trashOpen }));
+      setView(
+        homeHtml(lib, {
+          query: searchQuery,
+          rolled,
+          trashOpen,
+          notesOpen,
+          generalOpen: noteFor === 'general',
+          noteDraft,
+          freshReplies: hasFreshReplies(),
+        }),
+      );
       updateSearchResults();
       break;
     case 'shelves':
@@ -138,7 +187,11 @@ function render(): void {
       const piece = lib.byId.get(route.id);
       setView(
         piece
-          ? pieceHtml(lib, piece, lastListHash, { kindOpen })
+          ? pieceHtml(lib, piece, lastListHash, {
+              kindOpen,
+              noteOpen: noteFor === piece.drive_id,
+              noteDraft,
+            })
           : `<p class="crumb"><a href="#/home">‹ Home</a></p><p class="empty">Nothing here yet</p>`,
       );
       break;
@@ -154,6 +207,9 @@ async function loadAndShow(): Promise<void> {
   try {
     rawPieces = await fetchAll(sb);
     requests = await fetchRequests(sb);
+    const stored = loadSeen();
+    if (stored) answeredSeen = stored;
+    else markSeen();
     rebuild();
     render();
   } catch (err) {
@@ -209,8 +265,12 @@ function roll(): void {
 
 // ---- requests (the only writes) ------------------------------------------------
 
-async function saveRequest(drive_id: string, action: Req['action'], value?: string): Promise<void> {
-  if (busy) return;
+async function saveRequest(
+  drive_id: string,
+  action: Req['action'],
+  value?: string,
+): Promise<boolean> {
+  if (busy) return false;
   busy = true;
   setError(false);
   try {
@@ -220,40 +280,41 @@ async function saveRequest(drive_id: string, action: Req['action'], value?: stri
     const saved = (data ?? []) as Record<string, unknown>[];
     if (error || saved.length === 0) {
       setError(true);
-      return;
+      return false;
     }
     requests = [...requests, ...saved.map(normaliseReq)];
     kindOpen = false;
     rebuild();
     render();
+    return true;
   } catch (err) {
     console.warn('[save] failed:', err);
     setError(true);
+    return false;
   } finally {
     busy = false;
   }
 }
 
-async function undoTrash(drive_id: string): Promise<void> {
-  if (busy) return;
-  const pending = lib?.trashed.get(drive_id) ?? [];
-  if (pending.length === 0) return;
+/** Delete still-pending requests (undo a trash, unsend a note). Only the server's word counts. */
+async function deleteRequests(ids: number[]): Promise<void> {
+  if (busy || ids.length === 0) return;
   busy = true;
   setError(false);
   try {
     const gone = new Set<number>();
-    for (const r of pending) {
+    for (const id of ids) {
       const { data, error } = await sb
         .from('writing_requests')
         .delete()
-        .eq('id', r.id)
+        .eq('id', id)
         .is('done_at', null)
         .select();
       if (error || !data || data.length === 0) {
         setError(true);
         break;
       }
-      gone.add(r.id);
+      gone.add(id);
     }
     if (gone.size > 0) {
       requests = requests.filter((r) => !gone.has(r.id));
@@ -265,6 +326,29 @@ async function undoTrash(drive_id: string): Promise<void> {
     setError(true);
   } finally {
     busy = false;
+  }
+}
+
+function undoTrash(drive_id: string): Promise<void> {
+  const pending = lib?.trashed.get(drive_id) ?? [];
+  return deleteRequests(pending.map((r) => r.id));
+}
+
+/** Pick up replies Claude left since the last load. No polling: called on focus and on Home. */
+async function reloadRequests(): Promise<void> {
+  if (reloading || busy || !lib) return;
+  reloading = true;
+  try {
+    requests = await fetchRequests(sb);
+    rebuild();
+    const onHome = parseHash(location.hash).name === 'home';
+    if (notesOpen && onHome) markSeen();
+    // don't pull a half-written note out from under her
+    if (!(document.activeElement instanceof HTMLTextAreaElement)) render();
+  } catch (err) {
+    console.warn('[reload] failed:', err);
+  } finally {
+    reloading = false;
   }
 }
 
@@ -296,6 +380,10 @@ async function logout(): Promise<void> {
   requests = [];
   rolled = null;
   rollHistory = [];
+  notesOpen = false;
+  noteFor = null;
+  noteDraft = '';
+  answeredSeen = new Set();
   searchQuery = '';
   location.hash = '#/home';
   showGate();
@@ -362,11 +450,57 @@ function onAct(btn: HTMLElement): void {
     case 'top':
       void saveRequest(id, 'top', id);
       break;
+    case 'note-open': {
+      const pid = currentPieceId();
+      noteFor = noteFor === pid ? null : pid;
+      noteDraft = '';
+      render();
+      focusNote();
+      break;
+    }
+    case 'note-general':
+      noteFor = 'general';
+      noteDraft = '';
+      render();
+      focusNote();
+      break;
+    case 'note-cancel':
+      noteFor = null;
+      noteDraft = '';
+      render();
+      break;
+    case 'note-send': {
+      const text = noteDraft.trim();
+      if (text) {
+        void saveRequest(id, 'note', text).then((ok) => {
+          if (!ok) return;
+          noteFor = null;
+          noteDraft = '';
+          render();
+        });
+      }
+      break;
+    }
+    case 'toggle-notes':
+      notesOpen = !notesOpen;
+      if (notesOpen) markSeen();
+      render();
+      break;
+    case 'unsend':
+      void deleteRequests([Number(id)]);
+      break;
   }
 }
 
 function wire(): void {
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => {
+    const wasHome = lastRouteKey === 'home';
+    render();
+    if (!wasHome && parseHash(location.hash).name === 'home') void reloadRequests();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void reloadRequests();
+  });
 
   el<HTMLFormElement>('login-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -380,6 +514,8 @@ function wire(): void {
     if (t instanceof HTMLInputElement && t.id === 'search') {
       searchQuery = t.value;
       updateSearchResults();
+    } else if (t instanceof HTMLTextAreaElement && t.id === 'note-text') {
+      noteDraft = t.value;
     }
   });
 

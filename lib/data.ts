@@ -69,7 +69,8 @@ export function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
 
 export function normaliseReq(r: Record<string, unknown>): Req {
   const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-  const action = r.action === 'kind' || r.action === 'top' ? r.action : 'trash';
+  const known = ['trash', 'kind', 'top', 'note'] as const;
+  const action = known.find((k) => k === r.action) ?? 'other';
   return {
     id: Number(r.id),
     drive_id: s(r.drive_id) ?? '',
@@ -104,9 +105,17 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
   for (const p of raw) rawById.set(p.drive_id, p);
 
   const trashed = new Map<string, Req[]>();
+  const notes = new Map<string, Req[]>();
   const kindReq = new Map<string, Req>();
   const topReq = new Map<string, Req>();
   for (const r of [...requests].sort((a, b) => a.id - b.id)) {
+    if (r.action === 'note') {
+      // notes never change kind / top / trash state; they only form threads
+      const thread = notes.get(r.drive_id);
+      if (thread) thread.push(r);
+      else notes.set(r.drive_id, [r]);
+      continue;
+    }
     const p = rawById.get(r.drive_id);
     if (!p) continue;
     if (r.action === 'trash' && r.done_at === null) {
@@ -149,5 +158,5 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
     // If the top is waiting for the trash, the newest remaining version stands in for it.
     works.push({ id, top: live[0], versions: live });
   }
-  return { pieces, works, byId, workOf, trashed, visibleCount };
+  return { pieces, works, byId, workOf, trashed, notes, visibleCount };
 }

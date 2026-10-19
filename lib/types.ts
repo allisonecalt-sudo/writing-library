@@ -36,7 +36,7 @@ export interface Work {
 export interface Req {
   id: number;
   drive_id: string;
-  action: 'trash' | 'kind' | 'top';
+  action: 'trash' | 'kind' | 'top' | 'note' | 'other';
   value: string | null;
   created_at: string | null;
   done_at: string | null;
@@ -53,6 +53,8 @@ export interface Library {
   workOf: Map<string, Work>;
   /** Pending trash requests by drive_id. */
   trashed: Map<string, Req[]>;
+  /** Her notes to Claude by drive_id ('general' for general ones), oldest first. */
+  notes: Map<string, Req[]>;
   /** Number of pieces not waiting for the trash. */
   visibleCount: number;
 }

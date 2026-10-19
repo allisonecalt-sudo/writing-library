@@ -7,6 +7,7 @@ import {
   esc,
   firstLines,
   formatDate,
+  formatDateTime,
   kindLabel,
   metaLine,
   num,
@@ -23,7 +24,7 @@ import {
   sortForBrowse,
   todaysPoem,
 } from './search.js';
-import type { Filters, Library, Piece, Work } from './types.js';
+import type { Filters, Library, Piece, Req, Work } from './types.js';
 
 const EMPTY = '<p class="empty">Nothing here yet</p>';
 
@@ -57,6 +58,10 @@ export interface HomeUi {
   query: string;
   rolled: Piece | null;
   trashOpen: boolean;
+  notesOpen: boolean;
+  generalOpen: boolean;
+  noteDraft: string;
+  freshReplies: boolean;
 }
 
 function poemCard(poem: Piece, label: string, extra = ''): string {
@@ -113,6 +118,69 @@ export function trashCardHtml(lib: Library, open: boolean): string {
     <p class="caption tight">These go to Drive Trash tonight. Drive keeps them 30 days.</p>`;
 }
 
+export function composerHtml(forId: string, draft: string, placeholder: string): string {
+  return `<div class="note-box">
+      <textarea id="note-text" rows="4" maxlength="4000" dir="auto"
+        placeholder="${esc(placeholder)}" aria-label="Note to Claude">${esc(draft)}</textarea>
+      <div class="note-actions">
+        <button type="button" class="btn-dark" data-act="note-send" data-id="${esc(forId)}">Send</button>
+        <button type="button" class="quiet-btn" data-act="note-cancel">Cancel</button>
+      </div>
+    </div>`;
+}
+
+const FOURTEEN_DAYS = 14 * 24 * 3600 * 1000;
+
+function noteRow(lib: Library, n: Req): string {
+  const piece = n.drive_id === 'general' ? null : lib.byId.get(n.drive_id);
+  const title = n.drive_id === 'general' ? 'General' : piece ? piece : null;
+  const head =
+    title === null
+      ? '<div class="note-title">Removed piece</div>'
+      : typeof title === 'string'
+        ? `<div class="note-title">${title}</div>`
+        : titleHtml(title, 'note-title');
+  const reply = n.done_at
+    ? `<div class="note-reply" dir="auto"><b>Claude</b> · ${esc(n.result ?? 'Done.')}</div>`
+    : '<div class="note-reply">Waiting for Claude</div>';
+  const inner = `${head}<div class="note-clamp" dir="auto">${esc(n.value ?? '')}</div>${reply}`;
+  return piece
+    ? `<a class="note-row" href="${pieceHash(piece.drive_id)}">${inner}</a>`
+    : `<div class="note-row">${inner}</div>`;
+}
+
+export function notesCardHtml(lib: Library, ui: HomeUi): string {
+  const all = [...lib.notes.values()].flat();
+  const composer = composerHtml('general', ui.noteDraft, 'Tell Claude anything');
+  if (all.length === 0) {
+    if (ui.generalOpen) return `<div class="card notes-card pad">${composer}</div>`;
+    return '<p class="footer-links"><button type="button" class="linklike" data-act="note-general">💬 Write a note to Claude</button></p>';
+  }
+  const byNewest = (a: Req, b: Req): number => b.id - a.id;
+  const waiting = all.filter((n) => n.done_at === null).sort(byNewest);
+  const answered = all
+    .filter((n) => n.done_at !== null && Date.now() - Date.parse(n.done_at) <= FOURTEEN_DAYS)
+    .sort(byNewest);
+  const dot = ui.freshReplies ? ' <span class="dot" role="img" aria-label="New reply"></span>' : '';
+  const body = ui.notesOpen
+    ? `<div class="notes-body">
+        ${
+          ui.generalOpen
+            ? composer
+            : '<button type="button" class="quiet-btn" data-act="note-general">Write a general note</button>'
+        }
+        ${[...waiting, ...answered].map((n) => noteRow(lib, n)).join('')}
+      </div>`
+    : '';
+  return `<div class="card trash-card notes-card">
+      <button type="button" class="trash-head" data-act="toggle-notes" aria-expanded="${ui.notesOpen}">
+        <span>💬 Notes to Claude${dot}</span><span class="chev">${ui.notesOpen ? '▴' : '▾'}</span>
+      </button>
+      <div class="notes-count">${waiting.length} waiting · ${answered.length} answered</div>
+      ${body}
+    </div>`;
+}
+
 export function homeHtml(lib: Library, ui: HomeUi): string {
   const poems = lib.works.filter((w) => w.top.kind === 'poem').length;
   const withVersions = lib.works.filter((w) => w.versions.length > 1).length;
@@ -129,6 +197,7 @@ export function homeHtml(lib: Library, ui: HomeUi): string {
     </div>
     <div id="today-slot">${todaySlotHtml(lib, ui.rolled)}</div>
     <p class="counts">${num(lib.visibleCount)} pieces · ${num(poems)} poems · ${num(withVersions)} with versions</p>
+    <div id="notes-slot">${notesCardHtml(lib, ui)}</div>
     <div id="trash-slot">${trashCardHtml(lib, ui.trashOpen)}</div>
     <p class="footer-links"><button type="button" class="linklike" data-act="logout">Log out</button></p>`;
 }
@@ -254,8 +323,31 @@ export function firstLinesHtml(lib: Library): string {
   return `<div class="letter-strip">${strip}</div>${sections || EMPTY}`;
 }
 
+/** One piece's notes, oldest first: her words, then either "Waiting" or Claude's reply. */
+export function threadHtml(notes: Req[], readOnly: boolean): string {
+  if (notes.length === 0) return '';
+  const items = notes
+    .map((n) => {
+      const mine = `<div class="msg"><div class="msg-head"><b>You</b> · ${esc(formatDateTime(n.created_at))}</div>
+        <div class="msg-body" dir="auto">${esc(n.value ?? '')}</div></div>`;
+      const answer = n.done_at
+        ? `<div class="msg claude"><div class="msg-head"><b>Claude</b> · ${esc(formatDateTime(n.done_at))}</div>
+            <div class="msg-body" dir="auto">${esc(n.result ?? 'Done.')}</div></div>`
+        : `<div class="msg wait">Waiting for Claude${
+            readOnly
+              ? ''
+              : ` · <button type="button" class="linklike inline" data-act="unsend" data-id="${n.id}">Unsend</button>`
+          }</div>`;
+      return mine + answer;
+    })
+    .join('');
+  return `<div class="thread" aria-label="Notes to Claude">${items}</div>`;
+}
+
 export interface PieceUi {
   kindOpen: boolean;
+  noteOpen: boolean;
+  noteDraft: string;
 }
 
 export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: PieceUi): string {
@@ -300,16 +392,19 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
           `<button type="button" class="chip${k === piece.kind ? ' sel' : ''}" data-act="pick-kind" data-kind="${k}">${esc(kindLabel(k))}</button>`,
       ).join('')}</div>`
     : '';
+  const thread = threadHtml(lib.notes.get(piece.drive_id) ?? [], pending);
   const audit = pending
     ? ''
     : `<div class="audit">
         <div class="audit-row">
           <button type="button" class="quiet-btn" data-act="trash" data-id="${esc(piece.drive_id)}">🗑 Trash</button>
           <button type="button" class="quiet-btn" data-act="kind-open" aria-expanded="${ui.kindOpen}">Kind: ${esc(kindLabel(piece.kind))} ✏️</button>
+          <button type="button" class="quiet-btn" data-act="note-open" aria-expanded="${ui.noteOpen}">💬 Note to Claude</button>
           ${piece.kind_by === 'her' ? '<span class="tiny">your pick</span>' : ''}
           ${piece.is_top ? '' : `<button type="button" class="quiet-btn" data-act="top" data-id="${esc(piece.drive_id)}">Put on top</button>`}
         </div>
         ${picker}
+        ${ui.noteOpen ? composerHtml(piece.drive_id, ui.noteDraft, 'Tell Claude anything about this piece') : ''}
       </div>`;
   return `<p class="crumb"><a href="${esc(backHash)}" data-act="back">‹ Back</a></p>
     <article class="piece">
@@ -321,6 +416,7 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
       ${note}
       <div class="body reading" dir="auto">${esc(piece.body)}</div>
       ${audit}
+      ${thread}
       ${action ? `<div class="actions">${action}</div>` : ''}
     </article>`;
 }

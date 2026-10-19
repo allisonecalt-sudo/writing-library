@@ -75,3 +75,56 @@ test('v1.1 screenshots at 412x892', async ({ page }) => {
   await go('#/p/b1');
   await page.screenshot({ path: path.join(OUT, '9-pending-trash.png'), fullPage: true });
 });
+
+test('v1.2 screenshots at 412x892', async ({ page }) => {
+  const now = new Date().toISOString();
+  await mockSupabase(page, undefined, {
+    requests: [
+      {
+        id: 1,
+        drive_id: 'a1',
+        action: 'note',
+        value: 'Placeholder note: is the second line right?',
+        created_at: '2026-10-19T11:05:00Z',
+        done_at: null,
+        result: null,
+      },
+      {
+        id: 2,
+        drive_id: 'e1',
+        action: 'note',
+        value: 'Placeholder note: should this be a musing?',
+        created_at: '2026-10-19T11:10:00Z',
+        done_at: now,
+        result: 'Placeholder reply: yes, I moved it to Musing.',
+      },
+      {
+        id: 3,
+        drive_id: 'general',
+        action: 'note',
+        value: 'Placeholder general note about shelves',
+        created_at: '2026-10-19T11:20:00Z',
+        done_at: null,
+        result: null,
+      },
+    ],
+  });
+  await page.setViewportSize({ width: 412, height: 892 });
+  await login(page);
+  await page.locator('.notes-card .trash-head').click();
+  await page.screenshot({ path: path.join(OUT, '12-home-notes.png'), fullPage: true });
+
+  const go = async (hash: string): Promise<void> => {
+    await page.evaluate((h) => {
+      location.hash = h;
+    }, hash);
+    await page.waitForTimeout(150);
+  };
+  await go('#/p/a1');
+  await page.screenshot({ path: path.join(OUT, '11-piece-waiting-note.png'), fullPage: true });
+  await page.getByRole('button', { name: '💬 Note to Claude' }).click();
+  await page.locator('#note-text').fill('Placeholder: tell Claude something about this poem');
+  await page.screenshot({ path: path.join(OUT, '10-piece-note-box.png'), fullPage: true });
+  await go('#/p/e1');
+  await page.screenshot({ path: path.join(OUT, '13-piece-claude-reply.png'), fullPage: true });
+});

@@ -20,7 +20,9 @@ Her words, Oct 19 2026: _"a rlly organized website the drive is thliek the maste
 - One accent colour (`#2d6a4f`), used only for the primary actions: "Open in Drive" and "Log in".
 - One card per work (its `is_top` version). Other versions show as pills above the body.
 
-## What's built (v1.1 on top of v1.0)
+## What's built (v1.2 on top of v1.1 and v1.0)
+
+- v1.2: "💬 Note to Claude" on every piece (and a general note from Home). A note is a `writing_requests` row with `action = 'note'`; Claude answers later by setting `result` and `done_at`. Notes show as a thread on the piece version they were written on, with Unsend while unanswered. Home has a "Notes to Claude" card (waiting / answered in the last 14 days) with a quiet dot for new replies. Replies are reloaded when the app returns to the foreground and when Home opens (no polling). Notes never change kind, top or trash state.
 
 - v1.1: a 🎲 Roll button on Home (random poem, last 20 not repeated), audit controls in the piece view (Trash, Kind picker, Put on top), and a "To trash" card on Home. Controls only INSERT or DELETE (undo) rows in `public.writing_requests`; a nightly job applies them to Drive. The app applies her pending requests in memory at once (latest kind request per piece wins, latest top request per work wins, pending-trash pieces are hidden from every list). Writes use the server's returned row; on error it shows "Couldn't save that. Try again." and changes nothing.
 - v1.0 pieces below.
