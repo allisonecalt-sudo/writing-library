@@ -1,0 +1,28 @@
+{
+  "name": "writing-library",
+  "version": "1.0.0",
+  "description": "My Writing: Allison's private, read-only reading app for her poems and other writing.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint app.ts lib tests playwright.config.ts sw.js",
+    "format": "prettier --write app.ts sw.js styles.css index.html manifest.webmanifest lib tests playwright.config.ts eslint.config.js package.json tsconfig.json README.md .github",
+    "format:check": "prettier --check app.ts sw.js styles.css index.html manifest.webmanifest lib tests playwright.config.ts eslint.config.js package.json tsconfig.json README.md .github",
+    "test": "npm run build && playwright test",
+    "test:ci": "playwright test",
+    "serve": "serve -l 4871 ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.2",
+    "@typescript-eslint/parser": "^8.71.2",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
+    "serve": "^14.2.6",
+    "typescript": "^5.9.3"
+  }
+}

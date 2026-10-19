@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>My Writing</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#f5f4f0" />
+    <meta name="application-name" content="My Writing" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="My Writing" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="preconnect" href="https://hpiyvnfhoqnnnotrmwaz.supabase.co" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0" defer></script>
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Compiled from app.ts by `npm run build`. The deferred supabase script above runs
+         before this module, so window.supabase is ready when app.js evaluates. -->
+    <script type="module" src="dist/app.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1 class="app-title">📚 My Writing</h1>
+      <span class="app-version" id="app-version" title="Build version"></span>
+    </header>
+
+    <main id="gate" class="gate" hidden>
+      <form id="login-form" class="card login-card" novalidate>
+        <div class="label">Log in</div>
+        <label class="field">
+          <span>Email</span>
+          <input id="login-email" type="email" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="login-error" class="form-error" role="alert" hidden>
+          That didn't work. Check the email and password.
+        </p>
+        <button id="login-button" type="submit" class="btn-primary">Log in</button>
+      </form>
+    </main>
+
+    <div id="app" hidden>
+      <nav class="tabs" aria-label="Sections">
+        <a class="tab" data-tab="home" href="#/home"><span class="tab-emoji">🏠</span>Home</a>
+        <a class="tab" data-tab="shelves" href="#/shelves"
+          ><span class="tab-emoji">📚</span>Shelves</a
+        >
+        <a class="tab" data-tab="browse" href="#/browse"><span class="tab-emoji">🖋</span>Browse</a>
+        <a class="tab" data-tab="first" href="#/first"
+          ><span class="tab-emoji">🔤</span>First lines</a
+        >
+      </nav>
+      <main id="view" class="view"><p class="loading">Loading…</p></main>
+    </div>
+  </body>
+</html>
