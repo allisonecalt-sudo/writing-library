@@ -26,7 +26,7 @@ test("shows only the login card until you log in, then Home with Today's poem", 
   await expect(page.locator('.today .label')).toHaveText("Today's poem");
   await expect(page.locator('.today .body')).not.toBeEmpty();
   await expect(page.locator('.counts')).toHaveText('9 pieces · 4 poems · 2 with versions');
-  await expect(page.locator('#app-version')).toHaveText('v1.3');
+  await expect(page.locator('#app-version')).toHaveText('v1.4');
 });
 
 test('wrong login shows a plain error', async ({ page }) => {

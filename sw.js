@@ -3,7 +3,7 @@
 // fallback. Auth calls and anything that is not a GET are never touched or cached.
 // Bump VERSION together with APP_VERSION in app.ts on every deploy.
 
-const VERSION = 'writing-library-v1.3';
+const VERSION = 'writing-library-v1.4';
 const SHELL_CACHE = `${VERSION}-shell`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 const SHELL_ASSETS = [

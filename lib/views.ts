@@ -54,21 +54,33 @@ export function searchResultsHtml(found: Work[]): string {
   return `<p class="count">${num(found.length)} found</p>${cardsHtml(found.slice(0, 50))}`;
 }
 
+export interface RollNav {
+  canBack: boolean;
+  canNext: boolean;
+}
+
 export interface HomeUi {
   query: string;
   rolled: Piece | null;
+  nav: RollNav;
   trashOpen: boolean;
   notesOpen: boolean;
-  generalOpen: boolean;
+  generalMode: 'claude' | 'mine' | null;
+  mineOpen: boolean;
   noteDraft: string;
   freshReplies: boolean;
+}
+
+/** The heading, unless the piece is untitled: then its first line is already the body's start. */
+export function headingHtml(p: Piece, cls: string): string {
+  return displayTitle(p).italic ? '' : titleHtml(p, cls);
 }
 
 function poemCard(poem: Piece, label: string, extra = ''): string {
   return `<div class="today-wrap">
       <a class="card today" href="${pieceHash(poem.drive_id)}">
         <div class="label">${label}</div>
-        ${titleHtml(poem, 'card-title')}
+        ${headingHtml(poem, 'card-title')}
         <div class="card-meta"><span>${esc(metaLine(poem))}</span></div>
         <div class="body" dir="auto">${esc(poem.body)}</div>
       </a>${extra}
@@ -76,12 +88,16 @@ function poemCard(poem: Piece, label: string, extra = ''): string {
 }
 
 /** Today's poem, or the poem she just rolled (with a quiet way back to today's). */
-export function todaySlotHtml(lib: Library, rolled: Piece | null): string {
+export function todaySlotHtml(lib: Library, rolled: Piece | null, nav: RollNav): string {
   if (rolled) {
     return poemCard(
       rolled,
       '🎲 Rolled poem',
-      '<p class="footer-links"><button type="button" class="linklike" data-act="back-today">Today&#39;s poem</button></p>',
+      `<div class="roll-nav">
+        <button type="button" class="quiet-btn" data-act="roll-back" ${nav.canBack ? '' : 'disabled'}>‹ Back</button>
+        ${nav.canNext ? '<button type="button" class="quiet-btn" data-act="roll-next">Next ›</button>' : ''}
+        <button type="button" class="linklike" data-act="back-today">Today&#39;s poem</button>
+      </div>`,
     );
   }
   const poem = todaysPoem(lib);
@@ -118,12 +134,17 @@ export function trashCardHtml(lib: Library, open: boolean): string {
     <p class="caption tight">These go to Drive Trash tonight. Drive keeps them 30 days.</p>`;
 }
 
-export function composerHtml(forId: string, draft: string, placeholder: string): string {
+export function composerHtml(
+  forId: string,
+  draft: string,
+  placeholder: string,
+  mode: 'claude' | 'mine' = 'claude',
+): string {
   return `<div class="note-box">
       <textarea id="note-text" rows="4" maxlength="4000" dir="auto"
         placeholder="${esc(placeholder)}" aria-label="Note to Claude">${esc(draft)}</textarea>
       <div class="note-actions">
-        <button type="button" class="btn-dark" data-act="note-send" data-id="${esc(forId)}">Send</button>
+        <button type="button" class="btn-dark" data-act="${mode === 'mine' ? 'mine-send' : 'note-send'}" data-id="${esc(forId)}">${mode === 'mine' ? 'Save' : 'Send'}</button>
         <button type="button" class="quiet-btn" data-act="note-cancel">Cancel</button>
       </div>
     </div>`;
@@ -152,8 +173,9 @@ function noteRow(lib: Library, n: Req): string {
 export function notesCardHtml(lib: Library, ui: HomeUi): string {
   const all = [...lib.notes.values()].flat();
   const composer = composerHtml('general', ui.noteDraft, 'Tell Claude anything');
+  const generalOpen = ui.generalMode === 'claude';
   if (all.length === 0) {
-    if (ui.generalOpen) return `<div class="card notes-card pad">${composer}</div>`;
+    if (generalOpen) return `<div class="card notes-card pad">${composer}</div>`;
     return '<p class="footer-links"><button type="button" class="linklike" data-act="note-general">💬 Write a note to Claude</button></p>';
   }
   const byNewest = (a: Req, b: Req): number => b.id - a.id;
@@ -165,7 +187,7 @@ export function notesCardHtml(lib: Library, ui: HomeUi): string {
   const body = ui.notesOpen
     ? `<div class="notes-body">
         ${
-          ui.generalOpen
+          generalOpen
             ? composer
             : '<button type="button" class="quiet-btn" data-act="note-general">Write a general note</button>'
         }
@@ -177,6 +199,42 @@ export function notesCardHtml(lib: Library, ui: HomeUi): string {
         <span>💬 Notes to Claude${dot}</span><span class="chev">${ui.notesOpen ? '▴' : '▾'}</span>
       </button>
       <div class="notes-count">${waiting.length} waiting · ${answered.length} answered</div>
+      ${body}
+    </div>`;
+}
+
+/** Her private notes on Home. Claude never acts on these. Newest first, tap goes to the piece. */
+export function mineCardHtml(lib: Library, ui: HomeUi): string {
+  const all = [...lib.mine.values()].flat().sort((a, b) => b.id - a.id);
+  const composer = composerHtml('general', ui.noteDraft, 'A note just for you', 'mine');
+  const open = ui.generalMode === 'mine';
+  if (all.length === 0) {
+    if (open) return `<div class="card notes-card pad">${composer}</div>`;
+    return '<p class="footer-links"><button type="button" class="linklike" data-act="mine-general">📝 Write a note for yourself</button></p>';
+  }
+  const rows = all
+    .map((n) => {
+      const piece = n.drive_id === 'general' ? null : lib.byId.get(n.drive_id);
+      const head = piece ? titleHtml(piece, 'note-title') : '<div class="note-title">General</div>';
+      const inner = `${head}<div class="note-clamp" dir="auto">${esc(n.value ?? '')}</div>
+        <div class="note-reply">${esc(formatDateTime(n.created_at))}</div>`;
+      return piece
+        ? `<a class="note-row" href="${pieceHash(piece.drive_id)}">${inner}</a>`
+        : `<div class="note-row">${inner}</div>`;
+    })
+    .join('');
+  const body = ui.mineOpen
+    ? `<div class="notes-body">${
+        open
+          ? composer
+          : '<button type="button" class="quiet-btn" data-act="mine-general">Write a note for yourself</button>'
+      }${rows}</div>`
+    : '';
+  return `<div class="card trash-card notes-card">
+      <button type="button" class="trash-head" data-act="toggle-mine" aria-expanded="${ui.mineOpen}">
+        <span>📝 My notes</span><span class="chev">${ui.mineOpen ? '▴' : '▾'}</span>
+      </button>
+      <div class="notes-count">${all.length} ${all.length === 1 ? 'note' : 'notes'}</div>
       ${body}
     </div>`;
 }
@@ -195,9 +253,10 @@ export function homeHtml(lib: Library, ui: HomeUi): string {
         <span class="die" aria-hidden="true">🎲</span> Roll
       </button>
     </div>
-    <div id="today-slot">${todaySlotHtml(lib, ui.rolled)}</div>
+    <div id="today-slot">${todaySlotHtml(lib, ui.rolled, ui.nav)}</div>
     <p class="counts">${num(lib.visibleCount)} pieces · ${num(poems)} poems · ${num(withVersions)} with versions</p>
     <div id="notes-slot">${notesCardHtml(lib, ui)}</div>
+    <div id="mine-slot">${mineCardHtml(lib, ui)}</div>
     <div id="trash-slot">${trashCardHtml(lib, ui.trashOpen)}</div>
     <p class="footer-links"><button type="button" class="linklike" data-act="logout">Log out</button></p>`;
 }
@@ -324,10 +383,16 @@ export function firstLinesHtml(lib: Library): string {
 }
 
 /** One piece's notes, oldest first: her words, then either "Waiting" or Claude's reply. */
-export function threadHtml(notes: Req[], readOnly: boolean): string {
+export function threadHtml(claudeNotes: Req[], readOnly: boolean, mine: Req[] = []): string {
+  const notes = [...claudeNotes, ...mine].sort((a, b) => a.id - b.id);
   if (notes.length === 0) return '';
   const items = notes
     .map((n) => {
+      if (n.action === 'mine') {
+        return `<div class="msg mine"><div class="msg-head"><b>My note</b> · ${esc(formatDateTime(n.created_at))}
+          · <button type="button" class="linklike inline" data-act="unsend" data-id="${n.id}">Delete</button></div>
+          <div class="msg-body" dir="auto">${esc(n.value ?? '')}</div></div>`;
+      }
       const mine = `<div class="msg"><div class="msg-head"><b>You</b> · ${esc(formatDateTime(n.created_at))}</div>
         <div class="msg-body" dir="auto">${esc(n.value ?? '')}</div></div>`;
       const answer = n.done_at
@@ -346,7 +411,7 @@ export function threadHtml(notes: Req[], readOnly: boolean): string {
 
 export interface PieceUi {
   kindOpen: boolean;
-  noteOpen: boolean;
+  noteMode: 'claude' | 'mine' | null;
   noteDraft: string;
   editing: boolean;
   editDraft: string;
@@ -420,7 +485,11 @@ ${esc(ui.editDraft)}</textarea>
           </div>
         </div>`
       : `<div class="body reading" dir="auto">${esc(piece.body)}</div>`;
-  const thread = threadHtml(lib.notes.get(piece.drive_id) ?? [], pending);
+  const thread = threadHtml(
+    lib.notes.get(piece.drive_id) ?? [],
+    pending,
+    lib.mine.get(piece.drive_id) ?? [],
+  );
   const audit = pending
     ? ''
     : `<div class="audit">
@@ -428,16 +497,18 @@ ${esc(ui.editDraft)}</textarea>
           <button type="button" class="quiet-btn" data-act="trash" data-id="${esc(piece.drive_id)}">🗑 Trash</button>
           <button type="button" class="quiet-btn" data-act="kind-open" aria-expanded="${ui.kindOpen}">Kind: ${esc(kindLabel(piece.kind))} ✏️</button>
           ${canEdit ? `<button type="button" class="quiet-btn" data-act="edit-open" aria-expanded="${ui.editing}">✏️ Edit</button>` : ''}
-          <button type="button" class="quiet-btn" data-act="note-open" aria-expanded="${ui.noteOpen}">💬 Note to Claude</button>
+          <button type="button" class="quiet-btn" data-act="note-open" aria-expanded="${ui.noteMode === 'claude'}">💬 Note to Claude</button>
+          <button type="button" class="quiet-btn" data-act="mine-open" aria-expanded="${ui.noteMode === 'mine'}">📝 My note</button>
           ${piece.kind_by === 'her' ? '<span class="tiny">your pick</span>' : ''}
           ${piece.is_top ? '' : `<button type="button" class="quiet-btn" data-act="top" data-id="${esc(piece.drive_id)}">Put on top</button>`}
         </div>
         ${picker}
-        ${ui.noteOpen ? composerHtml(piece.drive_id, ui.noteDraft, 'Tell Claude anything about this piece') : ''}
+        ${ui.noteMode === 'claude' ? composerHtml(piece.drive_id, ui.noteDraft, 'Tell Claude anything about this piece') : ''}
+        ${ui.noteMode === 'mine' ? composerHtml(piece.drive_id, ui.noteDraft, 'A note just for you', 'mine') : ''}
       </div>`;
   return `<p class="crumb"><a href="${esc(backHash)}" data-act="back">‹ Back</a></p>
     <article class="piece">
-      ${titleHtml(piece, 'piece-title')}
+      ${headingHtml(piece, 'piece-title')}
       <div class="card-meta"><span>${esc(metaLine(piece, true))}</span></div>
       ${themes ? `<div class="chips tight">${themes}</div>` : ''}
       ${banner}

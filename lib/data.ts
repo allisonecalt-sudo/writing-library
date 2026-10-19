@@ -70,7 +70,7 @@ export function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
 
 export function normaliseReq(r: Record<string, unknown>): Req {
   const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-  const known = ['trash', 'kind', 'top', 'note', 'edit'] as const;
+  const known = ['trash', 'kind', 'top', 'note', 'mine', 'edit'] as const;
   const action = known.find((k) => k === r.action) ?? 'other';
   return {
     id: Number(r.id),
@@ -109,10 +109,18 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
   const trashed = new Map<string, Req[]>();
   const notes = new Map<string, Req[]>();
   const edits = new Map<string, Req[]>();
+  const mine = new Map<string, Req[]>();
   const lastEdit = new Map<string, Req>();
   const kindReq = new Map<string, Req>();
   const topReq = new Map<string, Req>();
   for (const r of [...requests].sort((a, b) => a.id - b.id)) {
+    if (r.action === 'mine') {
+      // private notes to herself: a thread, nothing else
+      const thread = mine.get(r.drive_id);
+      if (thread) thread.push(r);
+      else mine.set(r.drive_id, [r]);
+      continue;
+    }
     if (r.action === 'note') {
       // notes never change kind / top / trash state; they only form threads
       const thread = notes.get(r.drive_id);
@@ -185,5 +193,5 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
       editFailed.set(id, r);
     }
   }
-  return { pieces, works, byId, workOf, trashed, notes, edits, editFailed, visibleCount };
+  return { pieces, works, byId, workOf, trashed, notes, mine, edits, editFailed, visibleCount };
 }

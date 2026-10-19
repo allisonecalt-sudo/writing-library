@@ -9,6 +9,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
@@ -31,12 +32,15 @@ jobs:
         run: npm run build
 
       - name: Install Playwright browsers
+        timeout-minutes: 5
         run: npx playwright install --with-deps chromium
 
       - name: Test
+        timeout-minutes: 8
         run: npm run test:ci
 
   deploy:
+    timeout-minutes: 10
     needs: build-and-test
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest

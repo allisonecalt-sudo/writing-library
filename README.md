@@ -20,7 +20,9 @@ Her words, Oct 19 2026: _"a rlly organized website the drive is thliek the maste
 - One accent colour (`#2d6a4f`), used only for the primary actions: "Open in Drive" and "Log in".
 - One card per work (its `is_top` version). Other versions show as pills above the body.
 
-## What's built (v1.3 on top of v1.2, v1.1 and v1.0)
+## What's built (v1.4 on top of v1.3 to v1.0)
+
+- v1.4: 📝 My note (private; `writing_requests.action = 'mine'`, Claude never acts on it; Delete any time), a 📝 My notes card on Home, dice ‹ Back / Next › through this session's rolls, and untitled pieces no longer show their first line twice. CI now has hard timeouts (Playwright per-test/action/global, workflow step and job limits) so a stuck run fails fast.
 
 - v1.3: ✏️ Edit on Google Docs only (`writing_pieces.editable`). The body becomes a textarea; Save inserts a `writing_requests` row `action = 'edit'` with the full new text and `base_modified` = the piece's `drive_modified`. A pending edit is shown as the body everywhere (view, previews, search, first lines, dice) with a banner and Undo. The nightly job skips an edit if the Doc changed after `base_modified`; the piece view then shows a quiet "Your edit wasn't written" line with "show my edit" so her text is never lost.
 

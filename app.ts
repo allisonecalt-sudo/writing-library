@@ -15,6 +15,7 @@ import {
   shelfHtml,
   shelvesHtml,
   todaySlotHtml,
+  type RollNav,
   trashCardHtml,
 } from './lib/views.js';
 
@@ -31,10 +32,11 @@ const SB_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwaXl2bmZob3Fubm5vdHJtd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NzIwNDEsImV4cCI6MjA4ODA0ODA0MX0.AsGhYitkSnyVMwpJII05UseS_gICaXiCy7d8iHsr6Qw';
 
 // Bump together with VERSION in sw.js on every deploy.
-const APP_VERSION = 'v1.3';
+const APP_VERSION = 'v1.4';
 
 const ROLL_MS = 600;
 const NO_REPEAT = 20;
+const MAX_HISTORY = 500;
 const SAVE_ERROR = "Couldn't save that. Try again.";
 
 const sb = window.supabase.createClient(SB_URL, SB_KEY);
@@ -46,13 +48,16 @@ let searchQuery = '';
 let lastListHash = '#/home';
 let lastRouteKey = '';
 let rolled: Piece | null = null;
-let rollHistory: string[] = [];
+let rollHistory: string[] = []; // every poem rolled this session, in order
+let rollPos = -1; // which of them is on screen
 let rolling = false;
 let trashOpen = false;
 let kindOpen = false;
 let busy = false;
 let reloading = false;
 let notesOpen = false;
+let noteMode: 'claude' | 'mine' | null = null;
+let mineOpen = false;
 let noteFor: string | null = null; // piece id, or 'general', while a note box is open
 let noteDraft = '';
 let answeredSeen = new Set<number>();
@@ -182,6 +187,7 @@ function render(): void {
   if (key !== lastRouteKey) {
     kindOpen = false;
     noteFor = null;
+    noteMode = null;
     noteDraft = '';
     editFor = null;
     editDraft = '';
@@ -195,7 +201,9 @@ function render(): void {
           rolled,
           trashOpen,
           notesOpen,
-          generalOpen: noteFor === 'general',
+          generalMode: noteFor === 'general' ? noteMode : null,
+          mineOpen,
+          nav: navState(),
           noteDraft,
           freshReplies: hasFreshReplies(),
         }),
@@ -220,7 +228,7 @@ function render(): void {
         piece
           ? pieceHtml(lib, piece, lastListHash, {
               kindOpen,
-              noteOpen: noteFor === piece.drive_id,
+              noteMode: noteFor === piece.drive_id ? noteMode : null,
               noteDraft,
               editing: editFor === piece.drive_id,
               editDraft,
@@ -259,15 +267,24 @@ async function loadAndShow(): Promise<void> {
 
 // ---- dice -----------------------------------------------------------------
 
+function navState(): RollNav {
+  return { canBack: rollPos > 0, canNext: rollPos < rollHistory.length - 1 };
+}
+
+function updateTodaySlot(): void {
+  const slot = document.getElementById('today-slot');
+  if (slot && lib) slot.innerHTML = todaySlotHtml(lib, rolled, navState());
+}
+
 function pickRandomPoem(): Piece | null {
   if (!lib) return null;
   const poems = lib.works.map((w) => w.top).filter((p) => p.kind === 'poem');
   if (poems.length === 0) return null;
-  let pool = poems.filter((p) => !rollHistory.includes(p.drive_id));
+  const recent = rollHistory.slice(-NO_REPEAT);
+  let pool = poems.filter((p) => !recent.includes(p.drive_id));
   if (pool.length === 0) {
-    // everything was rolled lately: start over, but never repeat the one on screen
-    rollHistory = rolled ? [rolled.drive_id] : [];
-    pool = poems.filter((p) => !rollHistory.includes(p.drive_id));
+    // everything was rolled lately: allow repeats, but never the one on screen
+    pool = poems.filter((p) => p.drive_id !== rolled?.drive_id);
     if (pool.length === 0) pool = poems;
   }
   return pool[Math.floor(Math.random() * pool.length)];
@@ -278,9 +295,26 @@ function showRolled(): void {
   const picked = pickRandomPoem();
   if (!picked || !lib) return;
   rolled = picked;
-  rollHistory = [...rollHistory, picked.drive_id].slice(-NO_REPEAT);
-  const slot = document.getElementById('today-slot');
-  if (slot) slot.innerHTML = todaySlotHtml(lib, rolled);
+  // a new roll always goes on the END of the history, wherever she was in it
+  rollHistory = [...rollHistory, picked.drive_id].slice(-MAX_HISTORY);
+  rollPos = rollHistory.length - 1;
+  updateTodaySlot();
+}
+
+/** Step through this session's rolls: -1 = Back, +1 = Next. Skips any that have since gone. */
+function stepRoll(dir: -1 | 1): void {
+  if (!lib) return;
+  let pos = rollPos + dir;
+  while (pos >= 0 && pos < rollHistory.length) {
+    const p = lib.byId.get(rollHistory[pos]);
+    if (p && !lib.trashed.has(p.drive_id)) {
+      rollPos = pos;
+      rolled = p;
+      updateTodaySlot();
+      return;
+    }
+    pos += dir;
+  }
 }
 
 function roll(): void {
@@ -427,10 +461,13 @@ async function logout(): Promise<void> {
   requests = [];
   rolled = null;
   rollHistory = [];
+  rollPos = -1;
   notesOpen = false;
+  mineOpen = false;
   editFor = null;
   editDraft = '';
   noteFor = null;
+  noteMode = null;
   noteDraft = '';
   answeredSeen = new Set();
   searchQuery = '';
@@ -460,6 +497,15 @@ async function login(email: string, password: string): Promise<void> {
 
 // ---- wiring ---------------------------------------------------------------
 
+function openNoteBox(target: string | null, mode: 'claude' | 'mine'): void {
+  const same = noteFor === target && noteMode === mode;
+  noteFor = same ? null : target;
+  noteMode = same ? null : mode;
+  noteDraft = '';
+  render();
+  focusNote();
+}
+
 function onAct(btn: HTMLElement): void {
   const id = btn.dataset.id ?? '';
   switch (btn.dataset.act) {
@@ -472,9 +518,15 @@ function onAct(btn: HTMLElement): void {
     case 'roll':
       roll();
       break;
+    case 'roll-back':
+      stepRoll(-1);
+      break;
+    case 'roll-next':
+      stepRoll(1);
+      break;
     case 'back-today':
       rolled = null;
-      if (lib) el('today-slot').innerHTML = todaySlotHtml(lib, null);
+      updateTodaySlot();
       break;
     case 'toggle-trash':
       trashOpen = !trashOpen;
@@ -501,21 +553,39 @@ function onAct(btn: HTMLElement): void {
       break;
     case 'note-open': {
       editFor = null;
-      const pid = currentPieceId();
-      noteFor = noteFor === pid ? null : pid;
-      noteDraft = '';
-      render();
-      focusNote();
+      openNoteBox(currentPieceId(), 'claude');
       break;
     }
-    case 'note-general':
-      noteFor = 'general';
-      noteDraft = '';
-      render();
-      focusNote();
+    case 'mine-open':
+      editFor = null;
+      openNoteBox(currentPieceId(), 'mine');
       break;
+    case 'note-general':
+      openNoteBox('general', 'claude');
+      break;
+    case 'mine-general':
+      openNoteBox('general', 'mine');
+      break;
+    case 'toggle-mine':
+      mineOpen = !mineOpen;
+      render();
+      break;
+    case 'mine-send': {
+      const text = noteDraft.trim();
+      if (text) {
+        void saveRequest(id, 'mine', text).then((ok) => {
+          if (!ok) return;
+          noteFor = null;
+          noteMode = null;
+          noteDraft = '';
+          render();
+        });
+      }
+      break;
+    }
     case 'note-cancel':
       noteFor = null;
+      noteMode = null;
       noteDraft = '';
       render();
       break;
@@ -525,6 +595,7 @@ function onAct(btn: HTMLElement): void {
         void saveRequest(id, 'note', text).then((ok) => {
           if (!ok) return;
           noteFor = null;
+          noteMode = null;
           noteDraft = '';
           render();
         });
@@ -543,6 +614,7 @@ function onAct(btn: HTMLElement): void {
       editFor = editFor === pid ? null : pid;
       editDraft = piece.body;
       noteFor = null;
+      noteMode = null;
       kindOpen = false;
       render();
       if (editFor) {

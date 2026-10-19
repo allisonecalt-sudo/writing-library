@@ -10,12 +10,18 @@ export default defineConfig({
   outputDir: 'test-results/output',
   workers: 1,
   retries: 0,
+  // Nothing may wait forever: a stuck test fails fast instead of hanging CI.
+  timeout: 30_000,
+  expect: { timeout: 5_000 },
+  globalTimeout: 8 * 60_000,
   forbidOnly: !!process.env.CI,
   reporter: 'list',
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     // Block service workers so every Supabase request goes through the in-test mock.
     serviceWorkers: 'block',
+    actionTimeout: 10_000,
+    navigationTimeout: 15_000,
     viewport: { width: 412, height: 892 },
   },
   projects: [

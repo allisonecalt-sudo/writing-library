@@ -38,7 +38,7 @@ export interface Work {
 export interface Req {
   id: number;
   drive_id: string;
-  action: 'trash' | 'kind' | 'top' | 'note' | 'edit' | 'other';
+  action: 'trash' | 'kind' | 'top' | 'note' | 'mine' | 'edit' | 'other';
   value: string | null;
   created_at: string | null;
   done_at: string | null;
@@ -61,6 +61,8 @@ export interface Library {
   edits: Map<string, Req[]>;
   /** Latest edit per drive_id that the nightly job did NOT write (done, result not "written…"). */
   editFailed: Map<string, Req>;
+  /** Her private notes (action mine) by drive_id (or general), oldest first. Claude never acts on them. */
+  mine: Map<string, Req[]>;
   /** Her notes to Claude by drive_id ('general' for general ones), oldest first. */
   notes: Map<string, Req[]>;
   /** Number of pieces not waiting for the trash. */

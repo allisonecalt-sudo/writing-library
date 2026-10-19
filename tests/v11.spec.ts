@@ -34,13 +34,13 @@ test('dice rolls a random poem, and a second roll gives a different one', async 
   await expect(roll).toContainText('Roll');
   await roll.click();
   await expect(page.locator('#today-slot .label')).toHaveText('🎲 Rolled poem');
-  const first = await page.locator('#today-slot .card-title').innerText();
+  const first = await page.locator('#today-slot .body').innerText();
   await expect(page.locator('#today-slot .card-meta')).toContainText('Poem');
   await expect(page.locator('#today-slot .body')).not.toBeEmpty();
   await expect(page.locator('a.today')).toHaveAttribute('href', new RegExp('#/p/'));
 
   await roll.click();
-  await expect(page.locator('#today-slot .card-title')).not.toHaveText(first);
+  await expect(page.locator('#today-slot .body')).not.toHaveText(first);
 
   // the quiet way back to today's poem
   await page.getByRole('button', { name: "Today's poem" }).click();
@@ -55,7 +55,7 @@ test('dice does not repeat within the recent rolls', async ({ page }) => {
     await page.locator('#roll').click();
     await expect(page.locator('#today-slot .label')).toHaveText('🎲 Rolled poem');
     await expect(page.locator('#roll .die')).not.toHaveClass(/rolling/);
-    seen.push(await page.locator('#today-slot .card-title').innerText());
+    seen.push(await page.locator('#today-slot .body').innerText());
   }
   expect(new Set(seen).size).toBe(4); // the fixture has exactly 4 poems
 });
@@ -167,10 +167,10 @@ test('a pending-trash poem never turns up in the dice', async ({ page }) => {
   for (let i = 0; i < 6; i++) {
     await page.locator('#roll').click();
     await expect(page.locator('#roll .die')).not.toHaveClass(/rolling/);
-    seen.add(await page.locator('#today-slot .card-title').innerText());
+    seen.add(await page.locator('#today-slot .body').innerText());
   }
-  expect(seen.has('שיר לדוגמה')).toBe(false);
-  expect(seen.has('Placeholder Poem Alpha')).toBe(false);
+  expect([...seen].some((b) => b.includes('שורה ראשונה'))).toBe(false);
+  expect([...seen].some((b) => b.includes('Placeholder poem one'))).toBe(false);
 });
 
 test('done requests do not show in To trash', async ({ page }) => {

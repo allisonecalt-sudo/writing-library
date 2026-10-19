@@ -832,3 +832,27 @@ a.card:active {
   font-size: 16px;
   color: var(--text);
 }
+
+/* v1.4: private notes, dice history */
+.msg.mine {
+  background: #fbf6e6;
+  border-color: #eadfbd;
+}
+
+.msg.mine .msg-head {
+  color: #8a7d57;
+}
+
+.roll-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quiet-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
