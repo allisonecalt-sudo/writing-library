@@ -783,3 +783,52 @@ a.card:active {
   background: var(--ink);
   border-radius: 50%;
 }
+
+/* v1.3: editing. Neutral fills only. */
+.edit-box {
+  margin-top: 18px;
+}
+
+.edit-box textarea {
+  display: block;
+  width: 100%;
+  min-height: 8em;
+  margin: 0;
+  padding: 12px;
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.edit-box textarea:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.edit-box .note-actions {
+  margin-top: 10px;
+}
+
+.edit-failed {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.edit-failed summary {
+  display: inline;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.edit-failed .body {
+  font-size: 16px;
+  color: var(--text);
+}

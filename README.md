@@ -20,7 +20,9 @@ Her words, Oct 19 2026: _"a rlly organized website the drive is thliek the maste
 - One accent colour (`#2d6a4f`), used only for the primary actions: "Open in Drive" and "Log in".
 - One card per work (its `is_top` version). Other versions show as pills above the body.
 
-## What's built (v1.2 on top of v1.1 and v1.0)
+## What's built (v1.3 on top of v1.2, v1.1 and v1.0)
+
+- v1.3: ✏️ Edit on Google Docs only (`writing_pieces.editable`). The body becomes a textarea; Save inserts a `writing_requests` row `action = 'edit'` with the full new text and `base_modified` = the piece's `drive_modified`. A pending edit is shown as the body everywhere (view, previews, search, first lines, dice) with a banner and Undo. The nightly job skips an edit if the Doc changed after `base_modified`; the piece view then shows a quiet "Your edit wasn't written" line with "show my edit" so her text is never lost.
 
 - v1.2: "💬 Note to Claude" on every piece (and a general note from Home). A note is a `writing_requests` row with `action = 'note'`; Claude answers later by setting `result` and `done_at`. Notes show as a thread on the piece version they were written on, with Unsend while unanswered. Home has a "Notes to Claude" card (waiting / answered in the last 14 days) with a quiet dot for new replies. Replies are reloaded when the app returns to the foreground and when Home opens (no polling). Notes never change kind, top or trash state.
 

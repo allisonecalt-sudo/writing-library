@@ -13,6 +13,7 @@ export interface Row {
   first_line: string;
   kind: string;
   kind_by: string | null;
+  editable: boolean;
   year: number | null;
   themes: string[];
   mood: string | null;
@@ -38,6 +39,7 @@ export function row(over: Partial<Row> & { drive_id: string }): Row {
     first_line: body.split('\n')[0],
     kind: 'poem',
     kind_by: null,
+    editable: false,
     year: 2021,
     themes: [],
     mood: null,
@@ -60,6 +62,7 @@ export const FIXTURE: Row[] = [
     drive_id: 'a1',
     work_id: 'work-a',
     title: 'Placeholder Poem Alpha',
+    editable: true,
     body: 'Placeholder poem one, line one\nPlaceholder poem one, line two\n\nPlaceholder stanza two, lantern',
     year: 2021,
     themes: ['Family', 'Healing & recovery'],
@@ -110,6 +113,7 @@ export const FIXTURE: Row[] = [
     drive_id: 'c1',
     work_id: 'work-c',
     title: 'שיר לדוגמה',
+    editable: true,
     body: 'שורה ראשונה לדוגמה\nשורה שנייה לדוגמה',
     year: 2020,
     themes: ['Faith & God'],
@@ -129,6 +133,7 @@ export const FIXTURE: Row[] = [
     drive_id: 'e1',
     work_id: 'work-e',
     title: 'Placeholder Musing',
+    editable: true,
     kind: 'musing',
     year: 2021,
     themes: ['Writing'],
@@ -190,6 +195,7 @@ export interface ReqRow {
   created_at: string;
   done_at: string | null;
   result: string | null;
+  base_modified?: string | null;
 }
 
 export interface MockOptions {
@@ -271,6 +277,7 @@ export async function mockSupabase(
         created_at: new Date().toISOString(),
         done_at: null,
         result: null,
+        base_modified: body.base_modified ?? null,
       };
       mock.requests.push(created);
       return route.fulfill({ status: 201, headers: json, body: JSON.stringify([created]) });

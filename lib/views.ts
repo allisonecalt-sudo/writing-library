@@ -348,6 +348,10 @@ export interface PieceUi {
   kindOpen: boolean;
   noteOpen: boolean;
   noteDraft: string;
+  editing: boolean;
+  editDraft: string;
+  /** ids of unwritten-edit lines she has dismissed on this device */
+  dismissed: Set<number>;
 }
 
 export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: PieceUi): string {
@@ -392,6 +396,30 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
           `<button type="button" class="chip${k === piece.kind ? ' sel' : ''}" data-act="pick-kind" data-kind="${k}">${esc(kindLabel(k))}</button>`,
       ).join('')}</div>`
     : '';
+  const pendingEdit = lib.edits.has(piece.drive_id);
+  const canEdit = piece.editable && !pending;
+  const editBanner = pendingEdit
+    ? `<div class="banner" role="status"><span>Your edit goes into Drive tonight</span>
+        <button type="button" class="linklike inline" data-act="undo-edit" data-id="${esc(piece.drive_id)}">Undo</button></div>`
+    : '';
+  const failed = lib.editFailed.get(piece.drive_id);
+  const failedLine =
+    failed && !pendingEdit && !ui.dismissed.has(failed.id)
+      ? `<div class="edit-failed"><span dir="auto">Your edit wasn't written: ${esc(failed.result ?? '')}</span>
+          <details><summary>show my edit</summary><div class="body" dir="auto">${esc(failed.value ?? '')}</div></details>
+          <button type="button" class="linklike inline" data-act="dismiss-edit" data-id="${failed.id}">Dismiss</button></div>`
+      : '';
+  const bodyBlock =
+    ui.editing && canEdit
+      ? `<div class="edit-box">
+          <textarea id="edit-text" class="reading" dir="auto" aria-label="Edit text">
+${esc(ui.editDraft)}</textarea>
+          <div class="note-actions">
+            <button type="button" class="btn-dark" data-act="edit-save" data-id="${esc(piece.drive_id)}">Save</button>
+            <button type="button" class="quiet-btn" data-act="edit-cancel">Cancel</button>
+          </div>
+        </div>`
+      : `<div class="body reading" dir="auto">${esc(piece.body)}</div>`;
   const thread = threadHtml(lib.notes.get(piece.drive_id) ?? [], pending);
   const audit = pending
     ? ''
@@ -399,6 +427,7 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
         <div class="audit-row">
           <button type="button" class="quiet-btn" data-act="trash" data-id="${esc(piece.drive_id)}">🗑 Trash</button>
           <button type="button" class="quiet-btn" data-act="kind-open" aria-expanded="${ui.kindOpen}">Kind: ${esc(kindLabel(piece.kind))} ✏️</button>
+          ${canEdit ? `<button type="button" class="quiet-btn" data-act="edit-open" aria-expanded="${ui.editing}">✏️ Edit</button>` : ''}
           <button type="button" class="quiet-btn" data-act="note-open" aria-expanded="${ui.noteOpen}">💬 Note to Claude</button>
           ${piece.kind_by === 'her' ? '<span class="tiny">your pick</span>' : ''}
           ${piece.is_top ? '' : `<button type="button" class="quiet-btn" data-act="top" data-id="${esc(piece.drive_id)}">Put on top</button>`}
@@ -412,9 +441,11 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
       <div class="card-meta"><span>${esc(metaLine(piece, true))}</span></div>
       ${themes ? `<div class="chips tight">${themes}</div>` : ''}
       ${banner}
+      ${editBanner}
+      ${failedLine}
       ${pills}
       ${note}
-      <div class="body reading" dir="auto">${esc(piece.body)}</div>
+      ${bodyBlock}
       ${audit}
       ${thread}
       ${action ? `<div class="actions">${action}</div>` : ''}

@@ -128,3 +128,34 @@ test('v1.2 screenshots at 412x892', async ({ page }) => {
   await go('#/p/e1');
   await page.screenshot({ path: path.join(OUT, '13-piece-claude-reply.png'), fullPage: true });
 });
+
+test('v1.3 screenshots at 412x892', async ({ page }) => {
+  await mockSupabase(page, undefined, {
+    requests: [
+      {
+        id: 1,
+        drive_id: 'e1',
+        action: 'edit',
+        value: 'Placeholder edited musing, line one\nPlaceholder edited musing, line two',
+        created_at: '2026-10-19T11:05:00Z',
+        done_at: null,
+        result: null,
+        base_modified: '2022-03-01T10:00:00Z',
+      },
+    ],
+  });
+  await page.setViewportSize({ width: 412, height: 892 });
+  await login(page);
+  const go = async (hash: string): Promise<void> => {
+    await page.evaluate((h) => {
+      location.hash = h;
+    }, hash);
+    await page.waitForTimeout(150);
+  };
+  await go('#/p/e1');
+  await page.screenshot({ path: path.join(OUT, '15-piece-pending-edit.png'), fullPage: true });
+  await page.getByRole('button', { name: '✏️ Edit' }).click();
+  await page.screenshot({ path: path.join(OUT, '14-edit-box.png'), fullPage: true });
+  await go('#/p/b1');
+  await page.screenshot({ path: path.join(OUT, '16-not-editable.png'), fullPage: true });
+});

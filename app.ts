@@ -1,5 +1,5 @@
 // My Writing: a private reading app. Drive is the master. The app reads the library and can
-// only leave requests (trash / kind / top) and notes to Claude in writing_requests; a nightly job applies them.
+// only leave requests (trash / kind / top) notes to Claude and text edits in writing_requests; a nightly job applies them.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildLibrary, fetchAll, fetchRequests, normaliseReq } from './lib/data.js';
 import { KIND_LABEL } from './lib/format.js';
@@ -31,7 +31,7 @@ const SB_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwaXl2bmZob3Fubm5vdHJtd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NzIwNDEsImV4cCI6MjA4ODA0ODA0MX0.AsGhYitkSnyVMwpJII05UseS_gICaXiCy7d8iHsr6Qw';
 
 // Bump together with VERSION in sw.js on every deploy.
-const APP_VERSION = 'v1.2';
+const APP_VERSION = 'v1.3';
 
 const ROLL_MS = 600;
 const NO_REPEAT = 20;
@@ -57,6 +57,10 @@ let noteFor: string | null = null; // piece id, or 'general', while a note box i
 let noteDraft = '';
 let answeredSeen = new Set<number>();
 const SEEN_KEY = 'wl-seen-replies';
+const DISMISSED_KEY = 'wl-dismissed-edits';
+let editFor: string | null = null; // piece id while its edit box is open
+let editDraft = '';
+let dismissedEdits = new Set<number>();
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -111,6 +115,31 @@ function hasFreshReplies(): boolean {
   return answeredIds().some((id) => !answeredSeen.has(id));
 }
 
+function loadDismissed(): Set<number> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    return raw ? new Set(JSON.parse(raw) as number[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(): void {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissedEdits]));
+  } catch {
+    // storage blocked: the line just comes back next time
+  }
+}
+
+/** Let the edit box grow to fit her text, so the page scrolls instead of the box. */
+function autogrow(): void {
+  const box = document.getElementById('edit-text');
+  if (!box) return;
+  box.style.height = 'auto';
+  box.style.height = `${box.scrollHeight + 2}px`;
+}
+
 function focusNote(): void {
   document.getElementById('note-text')?.focus();
 }
@@ -154,6 +183,8 @@ function render(): void {
     kindOpen = false;
     noteFor = null;
     noteDraft = '';
+    editFor = null;
+    editDraft = '';
     setError(false);
   }
   switch (route.name) {
@@ -191,12 +222,16 @@ function render(): void {
               kindOpen,
               noteOpen: noteFor === piece.drive_id,
               noteDraft,
+              editing: editFor === piece.drive_id,
+              editDraft,
+              dismissed: dismissedEdits,
             })
           : `<p class="crumb"><a href="#/home">‹ Home</a></p><p class="empty">Nothing here yet</p>`,
       );
       break;
     }
   }
+  autogrow();
   if (key !== lastRouteKey) window.scrollTo(0, 0);
   lastRouteKey = key;
 }
@@ -208,6 +243,7 @@ async function loadAndShow(): Promise<void> {
     rawPieces = await fetchAll(sb);
     requests = await fetchRequests(sb);
     const stored = loadSeen();
+    dismissedEdits = loadDismissed();
     if (stored) answeredSeen = stored;
     else markSeen();
     rebuild();
@@ -269,13 +305,20 @@ async function saveRequest(
   drive_id: string,
   action: Req['action'],
   value?: string,
+  baseModified?: string | null,
 ): Promise<boolean> {
   if (busy) return false;
   busy = true;
   setError(false);
   try {
-    const row: { drive_id: string; action: string; value?: string } = { drive_id, action };
+    const row: {
+      drive_id: string;
+      action: string;
+      value?: string;
+      base_modified?: string | null;
+    } = { drive_id, action };
     if (value !== undefined) row.value = value;
+    if (baseModified !== undefined) row.base_modified = baseModified;
     const { data, error } = await sb.from('writing_requests').insert(row).select();
     const saved = (data ?? []) as Record<string, unknown>[];
     if (error || saved.length === 0) {
@@ -284,6 +327,10 @@ async function saveRequest(
     }
     requests = [...requests, ...saved.map(normaliseReq)];
     kindOpen = false;
+    if (action === 'edit') {
+      editFor = null;
+      editDraft = '';
+    }
     rebuild();
     render();
     return true;
@@ -381,6 +428,8 @@ async function logout(): Promise<void> {
   rolled = null;
   rollHistory = [];
   notesOpen = false;
+  editFor = null;
+  editDraft = '';
   noteFor = null;
   noteDraft = '';
   answeredSeen = new Set();
@@ -451,6 +500,7 @@ function onAct(btn: HTMLElement): void {
       void saveRequest(id, 'top', id);
       break;
     case 'note-open': {
+      editFor = null;
       const pid = currentPieceId();
       noteFor = noteFor === pid ? null : pid;
       noteDraft = '';
@@ -486,6 +536,47 @@ function onAct(btn: HTMLElement): void {
       if (notesOpen) markSeen();
       render();
       break;
+    case 'edit-open': {
+      const pid = currentPieceId();
+      const piece = pid ? lib?.byId.get(pid) : undefined;
+      if (!pid || !piece || !piece.editable) break;
+      editFor = editFor === pid ? null : pid;
+      editDraft = piece.body;
+      noteFor = null;
+      kindOpen = false;
+      render();
+      if (editFor) {
+        const box = document.getElementById('edit-text');
+        box?.focus();
+      }
+      break;
+    }
+    case 'edit-cancel':
+      editFor = null;
+      editDraft = '';
+      render();
+      break;
+    case 'edit-save': {
+      const piece = lib?.byId.get(id);
+      if (!piece) break;
+      const norm = (s: string): string => s.split('\r\n').join('\n');
+      if (norm(editDraft) === norm(piece.body)) {
+        editFor = null;
+        editDraft = '';
+        render();
+      } else {
+        void saveRequest(id, 'edit', editDraft, piece.drive_modified);
+      }
+      break;
+    }
+    case 'undo-edit':
+      void deleteRequests((lib?.edits.get(id) ?? []).map((r) => r.id));
+      break;
+    case 'dismiss-edit':
+      dismissedEdits.add(Number(id));
+      saveDismissed();
+      render();
+      break;
     case 'unsend':
       void deleteRequests([Number(id)]);
       break;
@@ -516,6 +607,9 @@ function wire(): void {
       updateSearchResults();
     } else if (t instanceof HTMLTextAreaElement && t.id === 'note-text') {
       noteDraft = t.value;
+    } else if (t instanceof HTMLTextAreaElement && t.id === 'edit-text') {
+      editDraft = t.value;
+      autogrow();
     }
   });
 

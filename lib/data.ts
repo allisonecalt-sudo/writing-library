@@ -1,6 +1,6 @@
 // Loading and shaping the data. Read-only: this app never writes to Supabase.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { KIND_LABEL } from './format.js';
+import { KIND_LABEL, firstLines } from './format.js';
 import type { Library, Piece, Req, Work } from './types.js';
 
 /** PostgREST returns at most 1000 rows per request. */
@@ -24,6 +24,7 @@ export function normalise(r: Raw): Piece {
     first_line: str(r.first_line),
     kind: str(r.kind) || 'poem',
     kind_by: r.kind_by ?? null,
+    editable: r.editable === true,
     year: typeof r.year === 'number' ? r.year : null,
     themes: Array.isArray(r.themes) ? r.themes : [],
     mood: r.mood ?? null,
@@ -69,7 +70,7 @@ export function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
 
 export function normaliseReq(r: Record<string, unknown>): Req {
   const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-  const known = ['trash', 'kind', 'top', 'note'] as const;
+  const known = ['trash', 'kind', 'top', 'note', 'edit'] as const;
   const action = known.find((k) => k === r.action) ?? 'other';
   return {
     id: Number(r.id),
@@ -79,6 +80,7 @@ export function normaliseReq(r: Record<string, unknown>): Req {
     created_at: s(r.created_at),
     done_at: s(r.done_at),
     result: s(r.result),
+    base_modified: s(r.base_modified),
   };
 }
 
@@ -106,6 +108,8 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
 
   const trashed = new Map<string, Req[]>();
   const notes = new Map<string, Req[]>();
+  const edits = new Map<string, Req[]>();
+  const lastEdit = new Map<string, Req>();
   const kindReq = new Map<string, Req>();
   const topReq = new Map<string, Req>();
   for (const r of [...requests].sort((a, b) => a.id - b.id)) {
@@ -118,6 +122,16 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
     }
     const p = rawById.get(r.drive_id);
     if (!p) continue;
+    if (r.action === 'edit') {
+      // an edit is only a body override; it never touches kind / top / trash
+      lastEdit.set(r.drive_id, r);
+      if (r.done_at === null) {
+        const list = edits.get(r.drive_id);
+        if (list) list.push(r);
+        else edits.set(r.drive_id, [r]);
+      }
+      continue;
+    }
     if (r.action === 'trash' && r.done_at === null) {
       const list = trashed.get(r.drive_id);
       if (list) list.push(r);
@@ -132,9 +146,16 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
   const pieces = raw.map((p) => {
     const k = kindReq.get(p.drive_id);
     const t = topReq.get(p.work_id);
+    const pendingEdits = edits.get(p.drive_id);
+    const e = pendingEdits ? pendingEdits[pendingEdits.length - 1] : undefined;
     const isTop = t ? t.drive_id === p.drive_id : p.is_top;
-    if (!k && isTop === p.is_top) return p;
-    return { ...p, is_top: isTop, ...(k ? { kind: k.value ?? p.kind, kind_by: 'her' } : {}) };
+    if (!k && !e && isTop === p.is_top) return p;
+    return {
+      ...p,
+      is_top: isTop,
+      ...(k ? { kind: k.value ?? p.kind, kind_by: 'her' } : {}),
+      ...(e ? { body: e.value ?? p.body, first_line: firstLines(e.value ?? p.body, 1) } : {}),
+    };
   });
 
   const byId = new Map<string, Piece>();
@@ -158,5 +179,11 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
     // If the top is waiting for the trash, the newest remaining version stands in for it.
     works.push({ id, top: live[0], versions: live });
   }
-  return { pieces, works, byId, workOf, trashed, notes, visibleCount };
+  const editFailed = new Map<string, Req>();
+  for (const [id, r] of lastEdit) {
+    if (r.done_at !== null && !(r.result ?? '').trim().toLowerCase().startsWith('written')) {
+      editFailed.set(id, r);
+    }
+  }
+  return { pieces, works, byId, workOf, trashed, notes, edits, editFailed, visibleCount };
 }

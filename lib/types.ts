@@ -11,6 +11,8 @@ export interface Piece {
   first_line: string;
   kind: string;
   kind_by: string | null;
+  /** True only for Google Docs: the one kind of file she can edit from here. */
+  editable: boolean;
   year: number | null;
   themes: string[];
   mood: string | null;
@@ -36,11 +38,13 @@ export interface Work {
 export interface Req {
   id: number;
   drive_id: string;
-  action: 'trash' | 'kind' | 'top' | 'note' | 'other';
+  action: 'trash' | 'kind' | 'top' | 'note' | 'edit' | 'other';
   value: string | null;
   created_at: string | null;
   done_at: string | null;
   result: string | null;
+  /** For edits: the drive_modified the edit started from. */
+  base_modified: string | null;
 }
 
 export interface Library {
@@ -53,6 +57,10 @@ export interface Library {
   workOf: Map<string, Work>;
   /** Pending trash requests by drive_id. */
   trashed: Map<string, Req[]>;
+  /** Pending edit requests by drive_id, oldest first. */
+  edits: Map<string, Req[]>;
+  /** Latest edit per drive_id that the nightly job did NOT write (done, result not "written…"). */
+  editFailed: Map<string, Req>;
   /** Her notes to Claude by drive_id ('general' for general ones), oldest first. */
   notes: Map<string, Req[]>;
   /** Number of pieces not waiting for the trash. */
