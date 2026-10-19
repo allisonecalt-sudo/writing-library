@@ -20,7 +20,9 @@ Her words, Oct 19 2026: _"a rlly organized website the drive is thliek the maste
 - One accent colour (`#2d6a4f`), used only for the primary actions: "Open in Drive" and "Log in".
 - One card per work (its `is_top` version). Other versions show as pills above the body.
 
-## What's built (v1.4 on top of v1.3 to v1.0)
+## What's built (v1.5 on top of v1.4 to v1.0)
+
+- v1.5: version pills show the date she WROTE it (`written`: 12 Jan 2026 / Jan 2026 / 2026, blank if unknown, never the Drive date) and sort newest-written first. The meta line falls back to the written year when `year` is empty. Piece view shows "Also in:" (or "Includes:" for a collection, 12 shown, + N more) from `also_in`, skipping ids that aren't in the data or are waiting for the trash.
 
 - v1.4: 📝 My note (private; `writing_requests.action = 'mine'`, Claude never acts on it; Delete any time), a 📝 My notes card on Home, dice ‹ Back / Next › through this session's rolls, and untitled pieces no longer show their first line twice. CI now has hard timeouts (Playwright per-test/action/global, workflow step and job limits) so a stuck run fails fast.
 

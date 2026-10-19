@@ -14,6 +14,8 @@ export interface Row {
   kind: string;
   kind_by: string | null;
   editable: boolean;
+  written: string | null;
+  also_in: string[];
   year: number | null;
   themes: string[];
   mood: string | null;
@@ -40,6 +42,8 @@ export function row(over: Partial<Row> & { drive_id: string }): Row {
     kind: 'poem',
     kind_by: null,
     editable: false,
+    written: null,
+    also_in: [],
     year: 2021,
     themes: [],
     mood: null,
@@ -63,6 +67,7 @@ export const FIXTURE: Row[] = [
     work_id: 'work-a',
     title: 'Placeholder Poem Alpha',
     editable: true,
+    written: '2026-01-12',
     body: 'Placeholder poem one, line one\nPlaceholder poem one, line two\n\nPlaceholder stanza two, lantern',
     year: 2021,
     themes: ['Family', 'Healing & recovery'],
@@ -75,6 +80,7 @@ export const FIXTURE: Row[] = [
     work_id: 'work-a',
     is_top: false,
     title: 'Placeholder Poem Alpha (draft)',
+    written: '2022',
     body: 'Draft of alpha, first try\nDraft of alpha, second try',
     drive_modified: '2021-04-10T10:00:00Z',
   }),
@@ -83,6 +89,7 @@ export const FIXTURE: Row[] = [
     work_id: 'work-a',
     is_top: false,
     title: 'Placeholder Poem Alpha (polished)',
+    written: '2024-03',
     kind: 'draft',
     body: 'Polished alpha, tidy line one\nPolished alpha, tidy line two',
     note: 'AI-polished (ChatGPT) — your own version is on top',

@@ -1,7 +1,7 @@
 // Takes the 412x892 screenshots (placeholder data only). Saved under test-results/screens/.
 import { test } from '@playwright/test';
 import path from 'node:path';
-import { login, mockSupabase } from './helpers';
+import { login, mockSupabase, row } from './helpers';
 
 const OUT = path.join(__dirname, '..', 'test-results', 'screens');
 
@@ -207,4 +207,50 @@ test('v1.4 screenshots at 412x892', async ({ page }) => {
   await page.screenshot({ path: path.join(OUT, '19-my-note-box.png'), fullPage: true });
   await go('#/p/d1');
   await page.screenshot({ path: path.join(OUT, '20-untitled-no-double.png'), fullPage: true });
+});
+
+test('v1.5 screenshots at 412x892', async ({ page }) => {
+  await mockSupabase(page, [
+    row({
+      drive_id: 's1',
+      work_id: 'sw',
+      title: 'Placeholder Poem Sigma',
+      year: null,
+      written: '2020-05-17',
+      body: 'Placeholder sigma, line one\nPlaceholder sigma, line two',
+      also_in: ['sc', 'si', 'gone'],
+    }),
+    row({
+      drive_id: 's2',
+      work_id: 'sw',
+      is_top: false,
+      title: 'Placeholder Poem Sigma (early)',
+      written: '2019-03',
+    }),
+    row({
+      drive_id: 's3',
+      work_id: 'sw',
+      is_top: false,
+      title: 'Placeholder Poem Sigma (unknown date)',
+      written: null,
+    }),
+    row({ drive_id: 'sc', title: 'Placeholder Collection', kind: 'collection' }),
+    row({
+      drive_id: 'si',
+      title: '',
+      has_title: false,
+      kind: 'diary',
+      body: 'Placeholder untitled diary opening\nmore',
+    }),
+  ]);
+  await page.setViewportSize({ width: 412, height: 892 });
+  await login(page);
+  await page.locator('#search').fill('sigma');
+  await page.locator('#search-results .card').first().waitFor();
+  await page.screenshot({ path: path.join(OUT, '21-card-meta-written-year.png') });
+  await page.evaluate(() => {
+    location.hash = '#/p/s1';
+  });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: path.join(OUT, '22-piece-also-in-pills.png'), fullPage: true });
 });

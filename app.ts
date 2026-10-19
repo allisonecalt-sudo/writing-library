@@ -32,7 +32,7 @@ const SB_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwaXl2bmZob3Fubm5vdHJtd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NzIwNDEsImV4cCI6MjA4ODA0ODA0MX0.AsGhYitkSnyVMwpJII05UseS_gICaXiCy7d8iHsr6Qw';
 
 // Bump together with VERSION in sw.js on every deploy.
-const APP_VERSION = 'v1.4';
+const APP_VERSION = 'v1.5';
 
 const ROLL_MS = 600;
 const NO_REPEAT = 20;
@@ -58,6 +58,7 @@ let reloading = false;
 let notesOpen = false;
 let noteMode: 'claude' | 'mine' | null = null;
 let mineOpen = false;
+let includesOpen = false;
 let noteFor: string | null = null; // piece id, or 'general', while a note box is open
 let noteDraft = '';
 let answeredSeen = new Set<number>();
@@ -186,6 +187,7 @@ function render(): void {
   const key = routeKey(route);
   if (key !== lastRouteKey) {
     kindOpen = false;
+    includesOpen = false;
     noteFor = null;
     noteMode = null;
     noteDraft = '';
@@ -228,6 +230,7 @@ function render(): void {
         piece
           ? pieceHtml(lib, piece, lastListHash, {
               kindOpen,
+              includesOpen,
               noteMode: noteFor === piece.drive_id ? noteMode : null,
               noteDraft,
               editing: editFor === piece.drive_id,
@@ -517,6 +520,10 @@ function onAct(btn: HTMLElement): void {
       break;
     case 'roll':
       roll();
+      break;
+    case 'includes-more':
+      includesOpen = true;
+      render();
       break;
     case 'roll-back':
       stepRoll(-1);

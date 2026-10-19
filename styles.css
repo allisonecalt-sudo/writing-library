@@ -856,3 +856,28 @@ a.card:active {
   opacity: 0.4;
   cursor: default;
 }
+
+/* v1.5: linked pieces */
+.also-in {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.also-in .row-label {
+  margin-right: 4px;
+}
+
+.also-link {
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+
+.sep {
+  color: var(--muted);
+}
+
+.also-link .untitled {
+  font-weight: 400;
+}

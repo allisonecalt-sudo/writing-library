@@ -11,6 +11,10 @@ export interface Piece {
   first_line: string;
   kind: string;
   kind_by: string | null;
+  /** When she WROTE it: 'YYYY-MM-DD', 'YYYY-MM' or 'YYYY'. Null = unknown. */
+  written: string | null;
+  /** Drive ids of OTHER pieces this one sits inside whole, or that sit inside it. Not versions. */
+  also_in: string[];
   /** True only for Google Docs: the one kind of file she can edit from here. */
   editable: boolean;
   year: number | null;

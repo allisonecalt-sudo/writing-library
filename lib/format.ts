@@ -78,9 +78,37 @@ export function displayTitle(p: Piece): { text: string; italic: boolean } {
   return { text: first || 'Untitled', italic: true };
 }
 
+const WRITTEN = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "12 Jan 2026", "Jan 2026" or "2026"; empty when unknown or malformed. */
+export function formatWritten(w: string | null): string {
+  const m = w ? WRITTEN.exec(w.trim()) : null;
+  if (!m) return '';
+  const month = m[2] ? MONTHS[Number(m[2]) - 1] : undefined;
+  if (m[2] && !month) return m[1];
+  if (m[3] && month) return `${Number(m[3])} ${month} ${m[1]}`;
+  return month ? `${month} ${m[1]}` : m[1];
+}
+
+/** Sortable number for a written date; unknown sorts below every real date. */
+export function writtenSortKey(w: string | null): number {
+  const m = w ? WRITTEN.exec(w.trim()) : null;
+  if (!m) return -1;
+  return Number(m[1]) * 10000 + Number(m[2] ?? 0) * 100 + Number(m[3] ?? 0);
+}
+
+/** The year to show: her `year`, else the year she wrote it, else nothing. */
+export function shownYear(p: Piece): number | null {
+  if (p.year !== null) return p.year;
+  const m = p.written ? WRITTEN.exec(p.written.trim()) : null;
+  return m ? Number(m[1]) : null;
+}
+
 export function metaLine(p: Piece, withFolder = false): string {
   const parts: string[] = [];
-  if (p.year !== null) parts.push(String(p.year));
+  const year = shownYear(p);
+  if (year !== null) parts.push(String(year));
   parts.push(kindLabel(p.kind));
   if (withFolder && p.folder) parts.push(p.folder);
   return parts.join(' · ');

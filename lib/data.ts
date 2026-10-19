@@ -1,6 +1,6 @@
 // Loading and shaping the data. Read-only: this app never writes to Supabase.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { KIND_LABEL, firstLines } from './format.js';
+import { KIND_LABEL, firstLines, writtenSortKey } from './format.js';
 import type { Library, Piece, Req, Work } from './types.js';
 
 /** PostgREST returns at most 1000 rows per request. */
@@ -24,6 +24,8 @@ export function normalise(r: Raw): Piece {
     first_line: str(r.first_line),
     kind: str(r.kind) || 'poem',
     kind_by: r.kind_by ?? null,
+    written: r.written ?? null,
+    also_in: Array.isArray(r.also_in) ? r.also_in : [],
     editable: r.editable === true,
     year: typeof r.year === 'number' ? r.year : null,
     themes: Array.isArray(r.themes) ? r.themes : [],
@@ -92,8 +94,14 @@ function modifiedMs(p: Piece): number {
   return p.drive_modified ? Date.parse(p.drive_modified) || 0 : 0;
 }
 
+/** Top first, then by the date she WROTE them (newest first, unknown last). */
 function topFirst(top: Piece, group: Piece[]): Piece[] {
-  const rest = group.filter((p) => p !== top).sort((a, b) => modifiedMs(b) - modifiedMs(a));
+  const rest = group
+    .filter((p) => p !== top)
+    .sort(
+      (a, b) =>
+        writtenSortKey(b.written) - writtenSortKey(a.written) || modifiedMs(b) - modifiedMs(a),
+    );
   return [top, ...rest];
 }
 
@@ -185,7 +193,10 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
     visibleCount += live.length;
     if (live.length === 0) continue;
     // If the top is waiting for the trash, the newest remaining version stands in for it.
-    works.push({ id, top: live[0], versions: live });
+    // if the top is waiting for the trash, the newest (by Drive date) remaining version stands in
+    const standIn =
+      live[0] === top ? top : [...live].sort((a, b) => modifiedMs(b) - modifiedMs(a))[0];
+    works.push({ id, top: standIn, versions: [standIn, ...live.filter((p) => p !== standIn)] });
   }
   const editFailed = new Map<string, Req>();
   for (const [id, r] of lastEdit) {

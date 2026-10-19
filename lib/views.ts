@@ -6,7 +6,7 @@ import {
   displayTitle,
   esc,
   firstLines,
-  formatDate,
+  formatWritten,
   formatDateTime,
   kindLabel,
   metaLine,
@@ -411,12 +411,37 @@ export function threadHtml(claudeNotes: Req[], readOnly: boolean, mine: Req[] = 
 
 export interface PieceUi {
   kindOpen: boolean;
+  includesOpen: boolean;
   noteMode: 'claude' | 'mine' | null;
   noteDraft: string;
   editing: boolean;
   editDraft: string;
   /** ids of unwritten-edit lines she has dismissed on this device */
   dismissed: Set<number>;
+}
+
+const INCLUDES_SHOWN = 12;
+
+/** "Also in:" / "Includes:" links to the pieces this one is linked with. Skips ids we don't have. */
+export function alsoInHtml(lib: Library, piece: Piece, expanded: boolean): string {
+  const linked = piece.also_in
+    .map((id) => lib.byId.get(id))
+    .filter((p): p is Piece => p !== undefined && !lib.trashed.has(p.drive_id));
+  if (linked.length === 0) return '';
+  const includes = piece.kind === 'collection';
+  const shown = includes && !expanded ? linked.slice(0, INCLUDES_SHOWN) : linked;
+  const more = linked.length - shown.length;
+  const links = shown
+    .map((p) => {
+      const t = displayTitle(p);
+      return `<a class="also-link" href="${pieceHash(p.drive_id)}"><span class="${t.italic ? 'untitled' : ''}" dir="auto">${esc(t.text)}</span> <span class="tiny">${esc(kindLabel(p.kind))}</span></a>`;
+    })
+    .join('<span class="sep"> · </span>');
+  const moreBtn =
+    more > 0
+      ? ` <button type="button" class="linklike inline" data-act="includes-more">+ ${more} more</button>`
+      : '';
+  return `<p class="also-in"><span class="row-label">${includes ? 'Includes:' : 'Also in:'}</span> ${links}${moreBtn}</p>`;
 }
 
 export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: PieceUi): string {
@@ -441,7 +466,7 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: Piec
               return `<a class="pill${cur ? ' sel' : ''}" href="${pieceHash(v.drive_id)}"
                 ${cur ? 'aria-current="true"' : ''}>
                 <span class="pill-title${displayTitle(v).italic ? ' untitled' : ''}" dir="auto">${esc(label)}</span>
-                <span class="pill-sub">${esc(formatDate(v.drive_modified))}${v.is_top ? ' · on top' : ''}${lib.trashed.has(v.drive_id) ? ' · to trash' : ''}</span>
+                <span class="pill-sub">${esc([formatWritten(v.written), v.is_top ? 'on top' : '', lib.trashed.has(v.drive_id) ? 'to trash' : ''].filter(Boolean).join(' · '))}</span>
               </a>`;
             })
             .join('')}</div>
@@ -515,6 +540,7 @@ ${esc(ui.editDraft)}</textarea>
       ${editBanner}
       ${failedLine}
       ${pills}
+      ${alsoInHtml(lib, piece, ui.includesOpen)}
       ${note}
       ${bodyBlock}
       ${audit}

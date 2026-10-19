@@ -26,7 +26,7 @@ test("shows only the login card until you log in, then Home with Today's poem", 
   await expect(page.locator('.today .label')).toHaveText("Today's poem");
   await expect(page.locator('.today .body')).not.toBeEmpty();
   await expect(page.locator('.counts')).toHaveText('9 pieces · 4 poems · 2 with versions');
-  await expect(page.locator('#app-version')).toHaveText('v1.4');
+  await expect(page.locator('#app-version')).toHaveText('v1.5');
 });
 
 test('wrong login shows a plain error', async ({ page }) => {
@@ -149,6 +149,7 @@ test('First lines groups Hebrew under א–ת at the end, ignores leading quotes
   await mockSupabase(page);
   await login(page);
   await page.getByRole('link', { name: /First lines/ }).click();
+  await expect(page.locator('.letter-head').first()).toBeVisible();
   const heads = await page.locator('.letter-head').allInnerTexts();
   expect(heads[heads.length - 1]).toBe('א–ת');
   // beta's first line starts with a quote mark but files under its first letter

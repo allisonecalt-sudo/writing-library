@@ -102,6 +102,7 @@ test('notes are oldest first', async ({ page }) => {
   });
   await login(page);
   await goto(page, '#/p/e1');
+  await expect(page.locator('.thread .msg')).toHaveCount(4);
   const heads = await page
     .locator('.thread .msg:not(.wait):not(.claude) .msg-body')
     .allInnerTexts();
