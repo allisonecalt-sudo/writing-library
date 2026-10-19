@@ -12,6 +12,7 @@ export interface Row {
   has_title: boolean;
   first_line: string;
   kind: string;
+  kind_by: string | null;
   year: number | null;
   themes: string[];
   mood: string | null;
@@ -36,6 +37,7 @@ export function row(over: Partial<Row> & { drive_id: string }): Row {
     has_title: true,
     first_line: body.split('\n')[0],
     kind: 'poem',
+    kind_by: null,
     year: 2021,
     themes: [],
     mood: null,
@@ -180,13 +182,35 @@ const UMD = path.join(
   'supabase.js',
 );
 
+export interface ReqRow {
+  id: number;
+  drive_id: string;
+  action: string;
+  value: string | null;
+  created_at: string;
+  done_at: string | null;
+  result: string | null;
+}
+
+export interface MockOptions {
+  requests?: ReqRow[];
+  /** Make every POST to writing_requests fail with a 500. */
+  failPost?: boolean;
+}
+
 export interface Mock {
+  /** The server-side writing_requests table (mutated by POST / DELETE). */
+  requests: ReqRow[];
   /** Every request made to the writing_pieces endpoint. */
   restRequests: Request[];
 }
 
-export async function mockSupabase(page: Page, rows: Row[] = FIXTURE): Promise<Mock> {
-  const mock: Mock = { restRequests: [] };
+export async function mockSupabase(
+  page: Page,
+  rows: Row[] = FIXTURE,
+  opts: MockOptions = {},
+): Promise<Mock> {
+  const mock: Mock = { restRequests: [], requests: [...(opts.requests ?? [])] };
   const cors = {
     'access-control-allow-origin': '*',
     'access-control-allow-headers': '*',
@@ -223,6 +247,48 @@ export async function mockSupabase(page: Page, rows: Row[] = FIXTURE): Promise<M
       headers: cors,
       contentType: 'application/json',
       body: JSON.stringify(rows.slice(offset, offset + Math.min(limit, 1000))),
+    });
+  });
+  await page.route('**/rest/v1/writing_requests**', (route) => {
+    const req = route.request();
+    const json = { 'content-type': 'application/json', ...cors };
+    const method = req.method();
+    if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (method === 'POST') {
+      if (opts.failPost) {
+        return route.fulfill({
+          status: 500,
+          headers: json,
+          body: JSON.stringify({ message: 'boom' }),
+        });
+      }
+      const body = JSON.parse(req.postData() ?? '{}') as Partial<ReqRow>;
+      const created: ReqRow = {
+        id: Math.max(0, ...mock.requests.map((r) => r.id)) + 1,
+        drive_id: String(body.drive_id),
+        action: String(body.action),
+        value: body.value ?? null,
+        created_at: new Date().toISOString(),
+        done_at: null,
+        result: null,
+      };
+      mock.requests.push(created);
+      return route.fulfill({ status: 201, headers: json, body: JSON.stringify([created]) });
+    }
+    if (method === 'DELETE') {
+      const url = new URL(req.url());
+      const id = Number((url.searchParams.get('id') ?? '').replace('eq.', ''));
+      const gone = mock.requests.filter((r) => r.id === id && r.done_at === null);
+      mock.requests = mock.requests.filter((r) => !gone.includes(r));
+      return route.fulfill({ status: 200, headers: json, body: JSON.stringify(gone) });
+    }
+    const url = new URL(req.url());
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 1000);
+    return route.fulfill({
+      status: 200,
+      headers: json,
+      body: JSON.stringify(mock.requests.slice(offset, offset + limit)),
     });
   });
   return mock;

@@ -53,26 +53,83 @@ export function searchResultsHtml(found: Work[]): string {
   return `<p class="count">${num(found.length)} found</p>${cardsHtml(found.slice(0, 50))}`;
 }
 
-export function homeHtml(lib: Library, query: string): string {
-  const poem = todaysPoem(lib);
-  const poems = lib.works.filter((w) => w.top.kind === 'poem').length;
-  const withVersions = lib.works.filter((w) => w.versions.length > 1).length;
-  const today = poem
-    ? `<a class="card today" href="${pieceHash(poem.drive_id)}">
-        <div class="label">Today's poem</div>
+export interface HomeUi {
+  query: string;
+  rolled: Piece | null;
+  trashOpen: boolean;
+}
+
+function poemCard(poem: Piece, label: string, extra = ''): string {
+  return `<div class="today-wrap">
+      <a class="card today" href="${pieceHash(poem.drive_id)}">
+        <div class="label">${label}</div>
         ${titleHtml(poem, 'card-title')}
         <div class="card-meta"><span>${esc(metaLine(poem))}</span></div>
         <div class="body" dir="auto">${esc(poem.body)}</div>
-      </a>`
+      </a>${extra}
+    </div>`;
+}
+
+/** Today's poem, or the poem she just rolled (with a quiet way back to today's). */
+export function todaySlotHtml(lib: Library, rolled: Piece | null): string {
+  if (rolled) {
+    return poemCard(
+      rolled,
+      '🎲 Rolled poem',
+      '<p class="footer-links"><button type="button" class="linklike" data-act="back-today">Today&#39;s poem</button></p>',
+    );
+  }
+  const poem = todaysPoem(lib);
+  return poem
+    ? poemCard(poem, "Today's poem")
     : `<div class="card today"><div class="label">Today's poem</div>${EMPTY}</div>`;
+}
+
+export function trashCardHtml(lib: Library, open: boolean): string {
+  const rows = [...lib.trashed.entries()]
+    .map(([id, reqs]) => ({ p: lib.byId.get(id), at: reqs[reqs.length - 1].created_at ?? '' }))
+    .filter((r): r is { p: Piece; at: string } => r.p !== undefined)
+    .sort((x, y) => y.at.localeCompare(x.at));
+  if (rows.length === 0) return '';
+  const list = open
+    ? `<div class="trash-list">${rows
+        .map(
+          ({ p }) => `<div class="trash-row">
+            <a class="trash-link" href="${pieceHash(p.drive_id)}">
+              ${titleHtml(p, 'trash-title')}
+              <div class="line-sub">${esc(metaLine(p))}</div>
+            </a>
+            <button type="button" class="quiet-btn" data-act="undo" data-id="${esc(p.drive_id)}">Undo</button>
+          </div>`,
+        )
+        .join('')}</div>`
+    : '';
+  return `<div class="card trash-card">
+      <button type="button" class="trash-head" data-act="toggle-trash" aria-expanded="${open}">
+        <span>To trash · ${rows.length}</span><span class="chev">${open ? '▴' : '▾'}</span>
+      </button>
+      ${list}
+    </div>
+    <p class="caption tight">These go to Drive Trash tonight. Drive keeps them 30 days.</p>`;
+}
+
+export function homeHtml(lib: Library, ui: HomeUi): string {
+  const poems = lib.works.filter((w) => w.top.kind === 'poem').length;
+  const withVersions = lib.works.filter((w) => w.versions.length > 1).length;
   return `<div class="searchbox">
-      <input id="search" type="search" placeholder="Search your writing" value="${esc(query)}"
+      <input id="search" type="search" placeholder="Search your writing" value="${esc(ui.query)}"
         autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
         aria-label="Search your writing" dir="auto" />
     </div>
     <div id="search-results"></div>
-    ${today}
-    <p class="counts">${num(lib.pieces.length)} pieces · ${num(poems)} poems · ${num(withVersions)} with versions</p>
+    <div class="roll-row">
+      <button type="button" class="btn-neutral" id="roll" data-act="roll">
+        <span class="die" aria-hidden="true">🎲</span> Roll
+      </button>
+    </div>
+    <div id="today-slot">${todaySlotHtml(lib, ui.rolled)}</div>
+    <p class="counts">${num(lib.visibleCount)} pieces · ${num(poems)} poems · ${num(withVersions)} with versions</p>
+    <div id="trash-slot">${trashCardHtml(lib, ui.trashOpen)}</div>
     <p class="footer-links"><button type="button" class="linklike" data-act="logout">Log out</button></p>`;
 }
 
@@ -197,7 +254,12 @@ export function firstLinesHtml(lib: Library): string {
   return `<div class="letter-strip">${strip}</div>${sections || EMPTY}`;
 }
 
-export function pieceHtml(lib: Library, piece: Piece, backHash: string): string {
+export interface PieceUi {
+  kindOpen: boolean;
+}
+
+export function pieceHtml(lib: Library, piece: Piece, backHash: string, ui: PieceUi): string {
+  const pending = lib.trashed.has(piece.drive_id);
   const work = lib.workOf.get(piece.drive_id);
   const versions = work?.versions ?? [piece];
   const themes = piece.themes
@@ -218,7 +280,7 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string): string 
               return `<a class="pill${cur ? ' sel' : ''}" href="${pieceHash(v.drive_id)}"
                 ${cur ? 'aria-current="true"' : ''}>
                 <span class="pill-title${displayTitle(v).italic ? ' untitled' : ''}" dir="auto">${esc(label)}</span>
-                <span class="pill-sub">${esc(formatDate(v.drive_modified))}${v.is_top ? ' · on top' : ''}</span>
+                <span class="pill-sub">${esc(formatDate(v.drive_modified))}${v.is_top ? ' · on top' : ''}${lib.trashed.has(v.drive_id) ? ' · to trash' : ''}</span>
               </a>`;
             })
             .join('')}</div>
@@ -228,14 +290,37 @@ export function pieceHtml(lib: Library, piece: Piece, backHash: string): string 
   const action = piece.link
     ? `<a class="btn-primary" href="${esc(piece.link)}" target="_blank" rel="noopener">Open in Drive ↗</a>`
     : '';
+  const banner = pending
+    ? `<div class="banner" role="status"><span>Going to Drive Trash tonight</span>
+        <button type="button" class="linklike inline" data-act="undo" data-id="${esc(piece.drive_id)}">Undo</button></div>`
+    : '';
+  const picker = ui.kindOpen
+    ? `<div class="chips picker">${KIND_ORDER.map(
+        (k) =>
+          `<button type="button" class="chip${k === piece.kind ? ' sel' : ''}" data-act="pick-kind" data-kind="${k}">${esc(kindLabel(k))}</button>`,
+      ).join('')}</div>`
+    : '';
+  const audit = pending
+    ? ''
+    : `<div class="audit">
+        <div class="audit-row">
+          <button type="button" class="quiet-btn" data-act="trash" data-id="${esc(piece.drive_id)}">🗑 Trash</button>
+          <button type="button" class="quiet-btn" data-act="kind-open" aria-expanded="${ui.kindOpen}">Kind: ${esc(kindLabel(piece.kind))} ✏️</button>
+          ${piece.kind_by === 'her' ? '<span class="tiny">your pick</span>' : ''}
+          ${piece.is_top ? '' : `<button type="button" class="quiet-btn" data-act="top" data-id="${esc(piece.drive_id)}">Put on top</button>`}
+        </div>
+        ${picker}
+      </div>`;
   return `<p class="crumb"><a href="${esc(backHash)}" data-act="back">‹ Back</a></p>
     <article class="piece">
       ${titleHtml(piece, 'piece-title')}
       <div class="card-meta"><span>${esc(metaLine(piece, true))}</span></div>
       ${themes ? `<div class="chips tight">${themes}</div>` : ''}
+      ${banner}
       ${pills}
       ${note}
       <div class="body reading" dir="auto">${esc(piece.body)}</div>
+      ${audit}
       ${action ? `<div class="actions">${action}</div>` : ''}
     </article>`;
 }

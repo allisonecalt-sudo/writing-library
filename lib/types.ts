@@ -10,6 +10,7 @@ export interface Piece {
   has_title: boolean;
   first_line: string;
   kind: string;
+  kind_by: string | null;
   year: number | null;
   themes: string[];
   mood: string | null;
@@ -31,11 +32,29 @@ export interface Work {
   versions: Piece[];
 }
 
+/** One row of public.writing_requests: a change she asked for, applied by a nightly job. */
+export interface Req {
+  id: number;
+  drive_id: string;
+  action: 'trash' | 'kind' | 'top';
+  value: string | null;
+  created_at: string | null;
+  done_at: string | null;
+  result: string | null;
+}
+
 export interface Library {
+  /** Every piece (requests applied), including ones waiting to be trashed. */
   pieces: Piece[];
+  /** What lists show: one entry per work, pieces waiting for the trash left out. */
   works: Work[];
   byId: Map<string, Piece>;
+  /** The FULL work for a piece (all versions, trashed ones too), for the piece view. */
   workOf: Map<string, Work>;
+  /** Pending trash requests by drive_id. */
+  trashed: Map<string, Req[]>;
+  /** Number of pieces not waiting for the trash. */
+  visibleCount: number;
 }
 
 export interface Filters {

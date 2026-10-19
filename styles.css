@@ -489,3 +489,156 @@ a.card:active {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* v1.1: dice, requests, audit controls. Neutral fills only; the accent stays on the primary action. */
+.roll-row {
+  margin-top: 12px;
+}
+
+.btn-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 18px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.btn-neutral:active {
+  background: var(--border);
+}
+
+.die {
+  display: inline-block;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.die.rolling {
+  animation: dice-roll 600ms ease-in-out;
+}
+
+@keyframes dice-roll {
+  0% {
+    transform: rotate(0) scale(1);
+  }
+  40% {
+    transform: rotate(300deg) scale(1.25);
+  }
+  100% {
+    transform: rotate(720deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .die.rolling {
+    animation: none;
+  }
+}
+
+.save-error {
+  max-width: 680px;
+  margin: 8px auto 0;
+  padding: 0 16px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.caption.tight {
+  margin-top: 6px;
+}
+
+.trash-card {
+  margin-top: 12px;
+  padding: 0;
+}
+
+.trash-head {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font: inherit;
+  font-weight: 600;
+  padding: 12px 14px;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.chev {
+  color: var(--muted);
+}
+
+.trash-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.trash-link {
+  min-width: 0;
+}
+
+.trash-title {
+  font-size: 15px;
+  font-weight: 550;
+}
+
+.quiet-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 11px;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.linklike.inline {
+  padding: 2px 6px;
+  color: var(--text);
+}
+
+.audit {
+  margin-top: 22px;
+}
+
+.audit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.picker {
+  margin-top: 8px;
+}
+
+.tiny {
+  font-size: 11px;
+  color: var(--muted);
+}

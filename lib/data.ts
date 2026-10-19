@@ -1,6 +1,7 @@
 // Loading and shaping the data. Read-only: this app never writes to Supabase.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Library, Piece, Work } from './types.js';
+import { KIND_LABEL } from './format.js';
+import type { Library, Piece, Req, Work } from './types.js';
 
 /** PostgREST returns at most 1000 rows per request. */
 export const PAGE_SIZE = 1000;
@@ -22,6 +23,7 @@ export function normalise(r: Raw): Piece {
     has_title: r.has_title === true,
     first_line: str(r.first_line),
     kind: str(r.kind) || 'poem',
+    kind_by: r.kind_by ?? null,
     year: typeof r.year === 'number' ? r.year : null,
     themes: Array.isArray(r.themes) ? r.themes : [],
     mood: r.mood ?? null,
@@ -37,28 +39,95 @@ export function normalise(r: Raw): Piece {
   };
 }
 
-/** Fetch every row, one page of 1000 at a time, until a page comes back short. */
-export async function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
-  const out: Piece[] = [];
+type Table = 'writing_pieces' | 'writing_requests';
+
+/** Fetch every row of a table, one page of 1000 at a time, until a page comes back short. */
+async function fetchPages<T>(
+  sb: SupabaseClient,
+  table: Table,
+  order: string,
+  map: (r: Record<string, unknown>) => T,
+): Promise<T[]> {
+  const out: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await sb
-      .from('writing_pieces')
+      .from(table)
       .select('*')
-      .order('drive_id')
+      .order(order)
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []) as Raw[];
-    for (const r of rows) out.push(normalise(r));
+    const rows = (data ?? []) as Record<string, unknown>[];
+    for (const r of rows) out.push(map(r));
     if (rows.length < PAGE_SIZE) break;
   }
   return out;
+}
+
+export function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
+  return fetchPages(sb, 'writing_pieces', 'drive_id', (r) => normalise(r as Raw));
+}
+
+export function normaliseReq(r: Record<string, unknown>): Req {
+  const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  const action = r.action === 'kind' || r.action === 'top' ? r.action : 'trash';
+  return {
+    id: Number(r.id),
+    drive_id: s(r.drive_id) ?? '',
+    action,
+    value: s(r.value),
+    created_at: s(r.created_at),
+    done_at: s(r.done_at),
+    result: s(r.result),
+  };
+}
+
+export function fetchRequests(sb: SupabaseClient): Promise<Req[]> {
+  return fetchPages(sb, 'writing_requests', 'id', normaliseReq);
 }
 
 function modifiedMs(p: Piece): number {
   return p.drive_modified ? Date.parse(p.drive_modified) || 0 : 0;
 }
 
-export function buildLibrary(pieces: Piece[]): Library {
+function topFirst(top: Piece, group: Piece[]): Piece[] {
+  const rest = group.filter((p) => p !== top).sort((a, b) => modifiedMs(b) - modifiedMs(a));
+  return [top, ...rest];
+}
+
+/**
+ * Build the in-memory library, applying her requests on top of the table:
+ * latest kind request per piece wins over `kind`, latest top request per work wins over
+ * `is_top`, and pieces with a pending trash request are left out of the lists.
+ */
+export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
+  const rawById = new Map<string, Piece>();
+  for (const p of raw) rawById.set(p.drive_id, p);
+
+  const trashed = new Map<string, Req[]>();
+  const kindReq = new Map<string, Req>();
+  const topReq = new Map<string, Req>();
+  for (const r of [...requests].sort((a, b) => a.id - b.id)) {
+    const p = rawById.get(r.drive_id);
+    if (!p) continue;
+    if (r.action === 'trash' && r.done_at === null) {
+      const list = trashed.get(r.drive_id);
+      if (list) list.push(r);
+      else trashed.set(r.drive_id, [r]);
+    } else if (r.action === 'kind' && r.value && KIND_LABEL[r.value]) {
+      kindReq.set(r.drive_id, r);
+    } else if (r.action === 'top') {
+      topReq.set(p.work_id, r);
+    }
+  }
+
+  const pieces = raw.map((p) => {
+    const k = kindReq.get(p.drive_id);
+    const t = topReq.get(p.work_id);
+    const isTop = t ? t.drive_id === p.drive_id : p.is_top;
+    if (!k && isTop === p.is_top) return p;
+    return { ...p, is_top: isTop, ...(k ? { kind: k.value ?? p.kind, kind_by: 'her' } : {}) };
+  });
+
   const byId = new Map<string, Piece>();
   const groups = new Map<string, Piece[]>();
   for (const p of pieces) {
@@ -69,12 +138,16 @@ export function buildLibrary(pieces: Piece[]): Library {
   }
   const works: Work[] = [];
   const workOf = new Map<string, Work>();
+  let visibleCount = 0;
   for (const [id, group] of groups) {
     const top = group.find((p) => p.is_top) ?? group[0];
-    const rest = group.filter((p) => p !== top).sort((a, b) => modifiedMs(b) - modifiedMs(a));
-    const work: Work = { id, top, versions: [top, ...rest] };
-    works.push(work);
-    for (const p of group) workOf.set(p.drive_id, work);
+    const full: Work = { id, top, versions: topFirst(top, group) };
+    for (const p of group) workOf.set(p.drive_id, full);
+    const live = full.versions.filter((p) => !trashed.has(p.drive_id));
+    visibleCount += live.length;
+    if (live.length === 0) continue;
+    // If the top is waiting for the trash, the newest remaining version stands in for it.
+    works.push({ id, top: live[0], versions: live });
   }
-  return { pieces, works, byId, workOf };
+  return { pieces, works, byId, workOf, trashed, visibleCount };
 }
