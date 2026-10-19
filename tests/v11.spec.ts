@@ -108,7 +108,7 @@ test('trash: banner, hidden from lists/search, in To trash, Undo restores', asyn
   await page.getByRole('link', { name: /Home/ }).click();
   await expect(page.locator('.trash-head')).toContainText('To trash · 1');
   await expect(page.locator('.counts')).toHaveText('8 pieces · 4 poems · 1 with versions');
-  await expect(page.locator('.caption')).toContainText('Drive Trash tonight');
+  await expect(page.locator('#trash-slot .caption')).toContainText('Drive Trash tonight');
   await page.locator('.trash-head').click();
   await expect(page.locator('.trash-row')).toHaveCount(1);
   await expect(page.locator('.trash-row')).toContainText('Placeholder Poem Beta');

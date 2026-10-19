@@ -20,7 +20,9 @@ Her words, Oct 19 2026: _"a rlly organized website the drive is thliek the maste
 - One accent colour (`#2d6a4f`), used only for the primary actions: "Open in Drive" and "Log in".
 - One card per work (its `is_top` version). Other versions show as pills above the body.
 
-## What's built (v1.5 on top of v1.4 to v1.0)
+## What's built (v1.6 on top of v1.5 to v1.0)
+
+- v1.6: ✍️ Write tab (title + big writing area; Save inserts a `writing_requests` row `action = 'new'` for Claude to file into Drive; draft kept on the device until saved; Unsend while pending; "Filed: …" once done). 📲 Install app button on Home (`beforeinstallprompt`; hint when the browser doesn't offer it; hidden when already installed). The dice now favour poems she hasn't seen or noted: `public.writing_seen` (upserted when a piece opens, or Today's/rolled poem stays on screen 3 s; once a minute per piece, silent on failure). When every poem is seen they fall back to the oldest-seen. A quiet count line says how many are left.
 
 - v1.5: version pills show the date she WROTE it (`written`: 12 Jan 2026 / Jan 2026 / 2026, blank if unknown, never the Drive date) and sort newest-written first. The meta line falls back to the written year when `year` is empty. Piece view shows "Also in:" (or "Includes:" for a collection, 12 shown, + N more) from `also_in`, skipping ids that aren't in the data or are waiting for the trash.
 

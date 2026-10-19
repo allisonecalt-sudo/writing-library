@@ -31,6 +31,8 @@ export function parseHash(hash: string): Route {
     }
     case 'first':
       return { name: 'first' };
+    case 'write':
+      return { name: 'write' };
     case 'p':
       return parts[1] ? { name: 'piece', id: dec(parts[1]) } : { name: 'home' };
     default:
@@ -57,12 +59,13 @@ export function shelfHash(name: string): string {
 }
 
 /** Which top tab a route belongs to. */
-export function tabOf(route: Route): 'home' | 'shelves' | 'browse' | 'first' | null {
+export function tabOf(route: Route): 'home' | 'shelves' | 'browse' | 'first' | 'write' | null {
   switch (route.name) {
     case 'home':
     case 'shelves':
     case 'browse':
     case 'first':
+    case 'write':
       return route.name;
     case 'shelf':
       return 'shelves';

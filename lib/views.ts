@@ -67,6 +67,8 @@ export interface HomeUi {
   notesOpen: boolean;
   generalMode: 'claude' | 'mine' | null;
   mineOpen: boolean;
+  install: 'button' | 'hint' | 'none';
+  seenNote: string;
   noteDraft: string;
   freshReplies: boolean;
 }
@@ -87,8 +89,18 @@ function poemCard(poem: Piece, label: string, extra = ''): string {
     </div>`;
 }
 
+/** The card plus one quiet line: how many poems she hasn't seen yet (a plain count). */
+export function todaySlotHtml(
+  lib: Library,
+  rolled: Piece | null,
+  nav: RollNav,
+  seenNote = '',
+): string {
+  return `${todayCardHtml(lib, rolled, nav)}<p class="caption tight seen-line">${esc(seenNote)}</p>`;
+}
+
 /** Today's poem, or the poem she just rolled (with a quiet way back to today's). */
-export function todaySlotHtml(lib: Library, rolled: Piece | null, nav: RollNav): string {
+function todayCardHtml(lib: Library, rolled: Piece | null, nav: RollNav): string {
   if (rolled) {
     return poemCard(
       rolled,
@@ -239,6 +251,59 @@ export function mineCardHtml(lib: Library, ui: HomeUi): string {
     </div>`;
 }
 
+/** The install control at the bottom of Home: a button when the browser offers it, else a hint. */
+export function installHtml(state: 'button' | 'hint' | 'none'): string {
+  if (state === 'button') {
+    return '<p class="footer-links"><button type="button" class="quiet-btn" data-act="install">📲 Install app</button></p>';
+  }
+  if (state === 'hint') {
+    return '<p class="caption tight">To install: browser menu ⋮ → Add to Home screen</p>';
+  }
+  return '';
+}
+
+export interface WriteUi {
+  title: string;
+  body: string;
+}
+
+/** The Write tab: a title, a big writing area, and the list of what she has sent for filing. */
+export function writeHtml(lib: Library, ui: WriteUi): string {
+  const items = [...lib.news]
+    .sort((a, b) => b.id - a.id)
+    .map((n) => {
+      const text = n.value ?? '';
+      const label = (n.title ?? '').trim() || firstLines(text, 1) || 'Untitled';
+      const italic = (n.title ?? '').trim() ? '' : ' untitled';
+      const target = n.drive_id !== 'new' ? lib.byId.get(n.drive_id) : undefined;
+      const status = n.done_at
+        ? `<div class="note-reply" dir="auto">Filed: ${
+            target
+              ? `<a class="also-link" href="${pieceHash(target.drive_id)}">${esc(n.result ?? 'Done')}</a>`
+              : esc(n.result ?? 'Done')
+          }</div>`
+        : `<div class="note-reply">Waiting for Claude to file it · <button type="button" class="linklike inline" data-act="unsend" data-id="${n.id}">Unsend</button></div>`;
+      return `<div class="card write-item">
+          <div class="card-title${italic}" dir="auto">${esc(label)}</div>
+          <div class="card-meta"><span>${esc(formatDateTime(n.created_at))}</span></div>
+          ${status}
+        </div>`;
+    })
+    .join('');
+  return `<h2 class="page-title">Write</h2>
+    <div class="write-form">
+      <input id="write-title" type="text" dir="auto" placeholder="Title (optional)" value="${esc(ui.title)}"
+        autocomplete="off" aria-label="Title" />
+      <textarea id="write-body" class="reading" dir="auto" placeholder="Start writing…"
+        aria-label="Your writing">\n${esc(ui.body)}</textarea>
+      <div class="note-actions">
+        <button type="button" class="btn-dark" data-act="write-save">Save</button>
+      </div>
+    </div>
+    <p class="caption tight">Claude files it into Drive in the right place. Then it shows up here like everything else.</p>
+    ${items ? `<h3 class="letter-head">Your new writing</h3><div class="cards">${items}</div>` : ''}`;
+}
+
 export function homeHtml(lib: Library, ui: HomeUi): string {
   const poems = lib.works.filter((w) => w.top.kind === 'poem').length;
   const withVersions = lib.works.filter((w) => w.versions.length > 1).length;
@@ -253,11 +318,12 @@ export function homeHtml(lib: Library, ui: HomeUi): string {
         <span class="die" aria-hidden="true">🎲</span> Roll
       </button>
     </div>
-    <div id="today-slot">${todaySlotHtml(lib, ui.rolled, ui.nav)}</div>
+    <div id="today-slot">${todaySlotHtml(lib, ui.rolled, ui.nav, ui.seenNote)}</div>
     <p class="counts">${num(lib.visibleCount)} pieces · ${num(poems)} poems · ${num(withVersions)} with versions</p>
     <div id="notes-slot">${notesCardHtml(lib, ui)}</div>
     <div id="mine-slot">${mineCardHtml(lib, ui)}</div>
     <div id="trash-slot">${trashCardHtml(lib, ui.trashOpen)}</div>
+    <div id="install-slot">${installHtml(ui.install)}</div>
     <p class="footer-links"><button type="button" class="linklike" data-act="logout">Log out</button></p>`;
 }
 

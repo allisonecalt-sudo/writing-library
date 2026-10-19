@@ -1,11 +1,12 @@
 // My Writing: a private reading app. Drive is the master. The app reads the library and can
 // only leave requests (trash / kind / top) notes to Claude and text edits in writing_requests; a nightly job applies them.
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { buildLibrary, fetchAll, fetchRequests, normaliseReq } from './lib/data.js';
+import { buildLibrary, fetchAll, fetchRequests, fetchSeen, normaliseReq } from './lib/data.js';
 import { KIND_LABEL } from './lib/format.js';
 import { parseHash, tabOf } from './lib/route.js';
-import { searchWorks } from './lib/search.js';
-import type { Library, Piece, Req, Route } from './lib/types.js';
+import { searchWorks, todaysPoem } from './lib/search.js';
+import { newPoems, oldestSeen, seenNote } from './lib/seen.js';
+import type { Library, Piece, Req, Route, SeenRow } from './lib/types.js';
 import {
   browseHtml,
   firstLinesHtml,
@@ -17,11 +18,20 @@ import {
   todaySlotHtml,
   type RollNav,
   trashCardHtml,
+  installHtml,
+  writeHtml,
 } from './lib/views.js';
+
+/** Chrome's install prompt event (not in the standard DOM typings). */
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+}
 
 declare global {
   interface Window {
     supabase: { createClient: (url: string, key: string) => SupabaseClient };
+    __WL_STAY_MS?: number;
   }
 }
 
@@ -32,7 +42,7 @@ const SB_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwaXl2bmZob3Fubm5vdHJtd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NzIwNDEsImV4cCI6MjA4ODA0ODA0MX0.AsGhYitkSnyVMwpJII05UseS_gICaXiCy7d8iHsr6Qw';
 
 // Bump together with VERSION in sw.js on every deploy.
-const APP_VERSION = 'v1.5';
+const APP_VERSION = 'v1.6';
 
 const ROLL_MS = 600;
 const NO_REPEAT = 20;
@@ -59,6 +69,25 @@ let notesOpen = false;
 let noteMode: 'claude' | 'mine' | null = null;
 let mineOpen = false;
 let includesOpen = false;
+const SEEN_STAY_MS = 3000;
+
+/** 3 seconds, unless a test sets window.__WL_STAY_MS to keep the timer out of the way. */
+function stayMs(): number {
+  const v = window.__WL_STAY_MS;
+  return typeof v === 'number' ? v : SEEN_STAY_MS;
+}
+const SEEN_DEDUPE_MS = 60_000;
+let seen = new Map<string, SeenRow>();
+const lastSent = new Map<string, number>();
+let stayTimer: ReturnType<typeof setTimeout> | undefined;
+let installEvent: BeforeInstallPromptEvent | null = null;
+let installed = false;
+const DRAFT_TITLE_KEY = 'wl-write-title';
+const DRAFT_BODY_KEY = 'wl-write-body';
+const DRAFT_SAVE_MS = 1500;
+let writeTitle = '';
+let writeBody = '';
+let draftTimer: ReturnType<typeof setTimeout> | undefined;
 let noteFor: string | null = null; // piece id, or 'general', while a note box is open
 let noteDraft = '';
 let answeredSeen = new Set<number>();
@@ -139,11 +168,115 @@ function saveDismissed(): void {
 }
 
 /** Let the edit box grow to fit her text, so the page scrolls instead of the box. */
-function autogrow(): void {
-  const box = document.getElementById('edit-text');
+function autogrow(id = 'edit-text'): void {
+  const box = document.getElementById(id);
   if (!box) return;
   box.style.height = 'auto';
   box.style.height = `${box.scrollHeight + 2}px`;
+}
+
+// ---- seen: what she has looked at (fire-and-forget; never blocks, never shows an error) ----
+
+function updateSeenLine(): void {
+  const line = document.querySelector('.seen-line');
+  if (line && lib) line.textContent = seenNote(lib, seen);
+}
+
+/** Record that she looked at a piece. At most once a minute per piece. */
+function touchSeen(id: string): void {
+  const now = Date.now();
+  const prev = lastSent.get(id) ?? 0;
+  if (now - prev < SEEN_DEDUPE_MS) return;
+  lastSent.set(id, now);
+  const iso = new Date(now).toISOString();
+  const row = seen.get(id);
+  const times = (row?.times ?? 0) + 1;
+  seen.set(id, { drive_id: id, first_seen: row?.first_seen ?? iso, last_seen: iso, times });
+  updateSeenLine();
+  void Promise.resolve(
+    sb
+      .from('writing_seen')
+      .upsert({ drive_id: id, last_seen: iso, times }, { onConflict: 'drive_id' }),
+  ).then(
+    (res) => {
+      if (res.error) console.warn('[seen] not saved:', res.error.message);
+    },
+    (err: unknown) => console.warn('[seen] not saved:', err),
+  );
+}
+
+/** Today's poem or the rolled poem counts as seen once she has stayed on it for 3 seconds. */
+function watchShown(): void {
+  clearTimeout(stayTimer);
+  if (!lib) return;
+  const id = (rolled ?? todaysPoem(lib))?.drive_id;
+  if (!id) return;
+  stayTimer = setTimeout(() => {
+    const shown = lib ? (rolled ?? todaysPoem(lib))?.drive_id : undefined;
+    if (shown === id && parseHash(location.hash).name === 'home') touchSeen(id);
+  }, stayMs());
+}
+
+// ---- install as an app -------------------------------------------------------
+
+function isStandalone(): boolean {
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true;
+}
+
+function installState(): 'button' | 'hint' | 'none' {
+  if (installed || isStandalone()) return 'none';
+  return installEvent ? 'button' : 'hint';
+}
+
+function updateInstallSlot(): void {
+  const slot = document.getElementById('install-slot');
+  if (slot) slot.innerHTML = installHtml(installState());
+}
+
+async function runInstall(): Promise<void> {
+  const ev = installEvent;
+  if (!ev) return;
+  installEvent = null; // the browser only lets an install prompt be used once
+  try {
+    await ev.prompt();
+    await ev.userChoice;
+  } catch (err) {
+    console.warn('[install] failed:', err);
+  }
+  updateInstallSlot();
+}
+
+// ---- write: draft kept on this device only until she saves --------------------
+
+function loadDraft(): void {
+  try {
+    writeTitle = localStorage.getItem(DRAFT_TITLE_KEY) ?? '';
+    writeBody = localStorage.getItem(DRAFT_BODY_KEY) ?? '';
+  } catch {
+    // storage blocked: no draft recovery, the tab still works
+  }
+}
+
+function persistDraft(): void {
+  clearTimeout(draftTimer);
+  draftTimer = undefined;
+  try {
+    if (writeTitle || writeBody) {
+      localStorage.setItem(DRAFT_TITLE_KEY, writeTitle);
+      localStorage.setItem(DRAFT_BODY_KEY, writeBody);
+    } else {
+      localStorage.removeItem(DRAFT_TITLE_KEY);
+      localStorage.removeItem(DRAFT_BODY_KEY);
+    }
+  } catch {
+    // storage blocked
+  }
+}
+
+function scheduleDraftSave(): void {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(persistDraft, DRAFT_SAVE_MS);
 }
 
 function focusNote(): void {
@@ -205,12 +338,15 @@ function render(): void {
           notesOpen,
           generalMode: noteFor === 'general' ? noteMode : null,
           mineOpen,
+          install: installState(),
+          seenNote: seenNote(lib, seen),
           nav: navState(),
           noteDraft,
           freshReplies: hasFreshReplies(),
         }),
       );
       updateSearchResults();
+      watchShown();
       break;
     case 'shelves':
       setView(shelvesHtml(lib));
@@ -224,8 +360,12 @@ function render(): void {
     case 'first':
       setView(firstLinesHtml(lib));
       break;
+    case 'write':
+      setView(writeHtml(lib, { title: writeTitle, body: writeBody }));
+      break;
     case 'piece': {
       const piece = lib.byId.get(route.id);
+      if (piece) touchSeen(piece.drive_id);
       setView(
         piece
           ? pieceHtml(lib, piece, lastListHash, {
@@ -243,6 +383,7 @@ function render(): void {
     }
   }
   autogrow();
+  autogrow('write-body');
   if (key !== lastRouteKey) window.scrollTo(0, 0);
   lastRouteKey = key;
 }
@@ -253,6 +394,12 @@ async function loadAndShow(): Promise<void> {
   try {
     rawPieces = await fetchAll(sb);
     requests = await fetchRequests(sb);
+    try {
+      seen = new Map((await fetchSeen(sb)).map((r) => [r.drive_id, r]));
+    } catch (err) {
+      console.warn('[seen] could not load:', err);
+      seen = new Map();
+    }
     const stored = loadSeen();
     dismissedEdits = loadDismissed();
     if (stored) answeredSeen = stored;
@@ -276,20 +423,20 @@ function navState(): RollNav {
 
 function updateTodaySlot(): void {
   const slot = document.getElementById('today-slot');
-  if (slot && lib) slot.innerHTML = todaySlotHtml(lib, rolled, navState());
+  if (slot && lib) slot.innerHTML = todaySlotHtml(lib, rolled, navState(), seenNote(lib, seen));
+  watchShown();
 }
 
 function pickRandomPoem(): Piece | null {
   if (!lib) return null;
-  const poems = lib.works.map((w) => w.top).filter((p) => p.kind === 'poem');
-  if (poems.length === 0) return null;
   const recent = rollHistory.slice(-NO_REPEAT);
-  let pool = poems.filter((p) => !recent.includes(p.drive_id));
-  if (pool.length === 0) {
-    // everything was rolled lately: allow repeats, but never the one on screen
-    pool = poems.filter((p) => p.drive_id !== rolled?.drive_id);
-    if (pool.length === 0) pool = poems;
-  }
+  const fresh = newPoems(lib, seen); // not seen, no note, not waiting for the trash
+  // When every poem has been seen, fall back to the ones seen longest ago.
+  const candidates = fresh.length > 0 ? fresh : oldestSeen(lib, seen, 25);
+  if (candidates.length === 0) return null;
+  let pool = candidates.filter((p) => !recent.includes(p.drive_id));
+  if (pool.length === 0) pool = candidates.filter((p) => p.drive_id !== rolled?.drive_id);
+  if (pool.length === 0) pool = candidates;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -343,6 +490,7 @@ async function saveRequest(
   action: Req['action'],
   value?: string,
   baseModified?: string | null,
+  title?: string,
 ): Promise<boolean> {
   if (busy) return false;
   busy = true;
@@ -353,9 +501,11 @@ async function saveRequest(
       action: string;
       value?: string;
       base_modified?: string | null;
+      title?: string;
     } = { drive_id, action };
     if (value !== undefined) row.value = value;
     if (baseModified !== undefined) row.base_modified = baseModified;
+    if (title) row.title = title;
     const { data, error } = await sb.from('writing_requests').insert(row).select();
     const saved = (data ?? []) as Record<string, unknown>[];
     if (error || saved.length === 0) {
@@ -367,6 +517,11 @@ async function saveRequest(
     if (action === 'edit') {
       editFor = null;
       editDraft = '';
+    }
+    if (action === 'new') {
+      writeTitle = '';
+      writeBody = '';
+      persistDraft();
     }
     rebuild();
     render();
@@ -465,6 +620,7 @@ async function logout(): Promise<void> {
   rolled = null;
   rollHistory = [];
   rollPos = -1;
+  seen = new Map();
   notesOpen = false;
   mineOpen = false;
   editFor = null;
@@ -520,6 +676,15 @@ function onAct(btn: HTMLElement): void {
       break;
     case 'roll':
       roll();
+      break;
+    case 'write-save': {
+      const text = writeBody;
+      if (text.trim())
+        void saveRequest('new', 'new', text, undefined, writeTitle.trim() || undefined);
+      break;
+    }
+    case 'install':
+      void runInstall();
       break;
     case 'includes-more':
       includesOpen = true;
@@ -664,12 +829,14 @@ function onAct(btn: HTMLElement): void {
 
 function wire(): void {
   window.addEventListener('hashchange', () => {
-    const wasHome = lastRouteKey === 'home';
+    const was = lastRouteKey;
     render();
-    if (!wasHome && parseHash(location.hash).name === 'home') void reloadRequests();
+    const now = parseHash(location.hash).name;
+    if (now !== was && (now === 'home' || now === 'write')) void reloadRequests();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void reloadRequests();
+    else persistDraft();
   });
 
   el<HTMLFormElement>('login-form').addEventListener('submit', (ev) => {
@@ -686,6 +853,13 @@ function wire(): void {
       updateSearchResults();
     } else if (t instanceof HTMLTextAreaElement && t.id === 'note-text') {
       noteDraft = t.value;
+    } else if (t instanceof HTMLInputElement && t.id === 'write-title') {
+      writeTitle = t.value;
+      scheduleDraftSave();
+    } else if (t instanceof HTMLTextAreaElement && t.id === 'write-body') {
+      writeBody = t.value;
+      autogrow('write-body');
+      scheduleDraftSave();
     } else if (t instanceof HTMLTextAreaElement && t.id === 'edit-text') {
       editDraft = t.value;
       autogrow();
@@ -707,6 +881,18 @@ function wire(): void {
 
 async function boot(): Promise<void> {
   el('app-version').textContent = APP_VERSION;
+  loadDraft();
+  window.addEventListener('beforeinstallprompt', (ev) => {
+    ev.preventDefault();
+    installEvent = ev as BeforeInstallPromptEvent;
+    updateInstallSlot();
+  });
+  window.addEventListener('appinstalled', () => {
+    installed = true;
+    installEvent = null;
+    updateInstallSlot();
+  });
+  window.addEventListener('pagehide', persistDraft);
   wire();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {

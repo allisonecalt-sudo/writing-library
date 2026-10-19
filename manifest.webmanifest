@@ -1,8 +1,10 @@
 {
   "name": "My Writing",
   "short_name": "My Writing",
-  "description": "Allison's private, read-only library of her poems and other writing.",
-  "start_url": "./index.html",
+  "description": "Allison's private library of her poems and other writing. Read, sort, and write new pieces.",
+  "id": "./",
+  "lang": "en",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",

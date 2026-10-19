@@ -1,7 +1,7 @@
 // Loading and shaping the data. Read-only: this app never writes to Supabase.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { KIND_LABEL, firstLines, writtenSortKey } from './format.js';
-import type { Library, Piece, Req, Work } from './types.js';
+import type { Library, Piece, Req, SeenRow, Work } from './types.js';
 
 /** PostgREST returns at most 1000 rows per request. */
 export const PAGE_SIZE = 1000;
@@ -42,7 +42,7 @@ export function normalise(r: Raw): Piece {
   };
 }
 
-type Table = 'writing_pieces' | 'writing_requests';
+type Table = 'writing_pieces' | 'writing_requests' | 'writing_seen';
 
 /** Fetch every row of a table, one page of 1000 at a time, until a page comes back short. */
 async function fetchPages<T>(
@@ -72,7 +72,7 @@ export function fetchAll(sb: SupabaseClient): Promise<Piece[]> {
 
 export function normaliseReq(r: Record<string, unknown>): Req {
   const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-  const known = ['trash', 'kind', 'top', 'note', 'mine', 'edit'] as const;
+  const known = ['trash', 'kind', 'top', 'note', 'mine', 'edit', 'new'] as const;
   const action = known.find((k) => k === r.action) ?? 'other';
   return {
     id: Number(r.id),
@@ -83,7 +83,18 @@ export function normaliseReq(r: Record<string, unknown>): Req {
     done_at: s(r.done_at),
     result: s(r.result),
     base_modified: s(r.base_modified),
+    title: s(r.title),
   };
+}
+
+export function fetchSeen(sb: SupabaseClient): Promise<SeenRow[]> {
+  const s = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  return fetchPages(sb, 'writing_seen', 'drive_id', (r) => ({
+    drive_id: s(r.drive_id) ?? '',
+    first_seen: s(r.first_seen),
+    last_seen: s(r.last_seen),
+    times: typeof r.times === 'number' ? r.times : 1,
+  }));
 }
 
 export function fetchRequests(sb: SupabaseClient): Promise<Req[]> {
@@ -118,10 +129,16 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
   const notes = new Map<string, Req[]>();
   const edits = new Map<string, Req[]>();
   const mine = new Map<string, Req[]>();
+  const news: Req[] = [];
   const lastEdit = new Map<string, Req>();
   const kindReq = new Map<string, Req>();
   const topReq = new Map<string, Req>();
   for (const r of [...requests].sort((a, b) => a.id - b.id)) {
+    if (r.action === 'new') {
+      // new writing waiting to be filed: a list, nothing else
+      news.push(r);
+      continue;
+    }
     if (r.action === 'mine') {
       // private notes to herself: a thread, nothing else
       const thread = mine.get(r.drive_id);
@@ -204,5 +221,17 @@ export function buildLibrary(raw: Piece[], requests: Req[] = []): Library {
       editFailed.set(id, r);
     }
   }
-  return { pieces, works, byId, workOf, trashed, notes, mine, edits, editFailed, visibleCount };
+  return {
+    pieces,
+    works,
+    byId,
+    workOf,
+    trashed,
+    notes,
+    mine,
+    news,
+    edits,
+    editFailed,
+    visibleCount,
+  };
 }

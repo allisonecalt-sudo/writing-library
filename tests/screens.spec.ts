@@ -254,3 +254,57 @@ test('v1.5 screenshots at 412x892', async ({ page }) => {
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(OUT, '22-piece-also-in-pills.png'), fullPage: true });
 });
+
+test('v1.6 screenshots at 412x892', async ({ page }) => {
+  const mock = await mockSupabase(page, undefined, {
+    requests: [
+      {
+        id: 1,
+        drive_id: 'new',
+        action: 'new',
+        value: 'Placeholder new poem, line one\nPlaceholder new poem, line two',
+        title: 'Placeholder new poem',
+        created_at: '2026-10-19T19:30:00Z',
+        done_at: null,
+        result: null,
+      },
+      {
+        id: 2,
+        drive_id: 'e1',
+        action: 'new',
+        value: 'Placeholder older writing\nmore',
+        title: null,
+        created_at: '2026-10-18T09:00:00Z',
+        done_at: '2026-10-18T23:00:00Z',
+        result: 'Filed as a Musing in musings/2026',
+      },
+    ],
+  });
+  void mock;
+  await page.setViewportSize({ width: 412, height: 892 });
+  await login(page);
+  await page.evaluate(() => {
+    const ev = new Event('beforeinstallprompt', { cancelable: true });
+    Object.assign(ev, { prompt: () => Promise.resolve(), userChoice: Promise.resolve({}) });
+    window.dispatchEvent(ev);
+  });
+  await page.getByRole('button', { name: '📲 Install app' }).waitFor();
+  await page.screenshot({ path: path.join(OUT, '25-home-install-button.png'), fullPage: true });
+  await page.evaluate(() => {
+    location.hash = '#/write';
+  });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(OUT, '24-write-waiting-and-filed.png'), fullPage: true });
+
+  // the empty Write tab, from a clean account
+  const page2 = await page.context().newPage();
+  await mockSupabase(page2);
+  await page2.setViewportSize({ width: 412, height: 892 });
+  await page2.goto('/');
+  await page2.locator('#search').waitFor();
+  await page2.evaluate(() => {
+    location.hash = '#/write';
+  });
+  await page2.waitForTimeout(200);
+  await page2.screenshot({ path: path.join(OUT, '23-write-empty.png') });
+});

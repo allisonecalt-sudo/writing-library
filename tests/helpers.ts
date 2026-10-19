@@ -203,17 +203,32 @@ export interface ReqRow {
   done_at: string | null;
   result: string | null;
   base_modified?: string | null;
+  title?: string | null;
+}
+
+export interface SeenFixture {
+  drive_id: string;
+  first_seen: string;
+  last_seen: string;
+  times: number;
 }
 
 export interface MockOptions {
   requests?: ReqRow[];
   /** Make every POST to writing_requests fail with a 500. */
   failPost?: boolean;
+  /** Rows already in writing_seen. */
+  seen?: SeenFixture[];
+  /** How long a poem must stay on screen to count as seen. Default: out of the way (1 hour). Pass null for the real 3 s. */
+  seenStayMs?: number | null;
 }
 
 export interface Mock {
   /** The server-side writing_requests table (mutated by POST / DELETE). */
   requests: ReqRow[];
+  /** The server-side writing_seen table, and every upsert the app sent. */
+  seen: SeenFixture[];
+  seenWrites: SeenFixture[];
   /** Every request made to the writing_pieces endpoint. */
   restRequests: Request[];
 }
@@ -223,7 +238,18 @@ export async function mockSupabase(
   rows: Row[] = FIXTURE,
   opts: MockOptions = {},
 ): Promise<Mock> {
-  const mock: Mock = { restRequests: [], requests: [...(opts.requests ?? [])] };
+  const mock: Mock = {
+    restRequests: [],
+    requests: [...(opts.requests ?? [])],
+    seen: [...(opts.seen ?? [])],
+    seenWrites: [],
+  };
+  if (opts.seenStayMs !== null) {
+    const ms = opts.seenStayMs ?? 3_600_000;
+    await page.addInitScript((v) => {
+      (window as unknown as Record<string, unknown>).__WL_STAY_MS = v;
+    }, ms);
+  }
   const cors = {
     'access-control-allow-origin': '*',
     'access-control-allow-headers': '*',
@@ -262,6 +288,36 @@ export async function mockSupabase(
       body: JSON.stringify(rows.slice(offset, offset + Math.min(limit, 1000))),
     });
   });
+  await page.route('**/rest/v1/writing_seen**', (route) => {
+    const req = route.request();
+    const json = { 'content-type': 'application/json', ...cors };
+    const method = req.method();
+    if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    if (method === 'POST' || method === 'PATCH') {
+      const body = JSON.parse(req.postData() ?? '{}') as
+        Partial<SeenFixture> | Partial<SeenFixture>[];
+      for (const r of Array.isArray(body) ? body : [body]) {
+        const row = {
+          drive_id: String(r.drive_id),
+          last_seen: String(r.last_seen),
+          times: Number(r.times ?? 1),
+        };
+        mock.seenWrites.push({ ...row, first_seen: row.last_seen });
+        const at = mock.seen.findIndex((s) => s.drive_id === row.drive_id);
+        if (at >= 0) mock.seen[at] = { ...mock.seen[at], ...row };
+        else mock.seen.push({ ...row, first_seen: row.last_seen });
+      }
+      return route.fulfill({ status: 201, headers: json, body: '' });
+    }
+    const url = new URL(req.url());
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 1000);
+    return route.fulfill({
+      status: 200,
+      headers: json,
+      body: JSON.stringify(mock.seen.slice(offset, offset + limit)),
+    });
+  });
   await page.route('**/rest/v1/writing_requests**', (route) => {
     const req = route.request();
     const json = { 'content-type': 'application/json', ...cors };
@@ -285,6 +341,7 @@ export async function mockSupabase(
         done_at: null,
         result: null,
         base_modified: body.base_modified ?? null,
+        title: body.title ?? null,
       };
       mock.requests.push(created);
       return route.fulfill({ status: 201, headers: json, body: JSON.stringify([created]) });

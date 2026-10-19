@@ -42,13 +42,29 @@ export interface Work {
 export interface Req {
   id: number;
   drive_id: string;
-  action: 'trash' | 'kind' | 'top' | 'note' | 'mine' | 'edit' | 'other';
+  action: 'trash' | 'kind' | 'top' | 'note' | 'mine' | 'edit' | 'new' | 'other';
   value: string | null;
   created_at: string | null;
   done_at: string | null;
   result: string | null;
+  /** For new writing: the optional title she gave it. */
+  title: string | null;
   /** For edits: the drive_modified the edit started from. */
   base_modified: string | null;
+}
+
+export interface SeenRow {
+  drive_id: string;
+  first_seen: string | null;
+  last_seen: string | null;
+  times: number;
+}
+
+export interface SeenRow {
+  drive_id: string;
+  first_seen: string | null;
+  last_seen: string | null;
+  times: number;
 }
 
 export interface Library {
@@ -67,6 +83,8 @@ export interface Library {
   editFailed: Map<string, Req>;
   /** Her private notes (action mine) by drive_id (or general), oldest first. Claude never acts on them. */
   mine: Map<string, Req[]>;
+  /** New writing she wrote in the app (action new), oldest first. Claude files it into Drive. */
+  news: Req[];
   /** Her notes to Claude by drive_id ('general' for general ones), oldest first. */
   notes: Map<string, Req[]>;
   /** Number of pieces not waiting for the trash. */
@@ -86,4 +104,5 @@ export type Route =
   | { name: 'shelf'; shelf: string }
   | { name: 'browse'; filters: Filters }
   | { name: 'first' }
+  | { name: 'write' }
   | { name: 'piece'; id: string };
